@@ -2,9 +2,9 @@
 
 namespace Arca\PaymentGateways\Tests;
 
+use Arca\PaymentGateways\PaymentGatewaysServiceProvider;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Orchestra\Testbench\TestCase as Orchestra;
-use Arca\PaymentGateways\PaymentGatewaysServiceProvider;
 
 class TestCase extends Orchestra
 {

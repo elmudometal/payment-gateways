@@ -2,9 +2,9 @@
 
 namespace Arca\PaymentGateways;
 
+use Arca\PaymentGateways\Commands\PaymentGatewaysCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use Arca\PaymentGateways\Commands\PaymentGatewaysCommand;
 
 class PaymentGatewaysServiceProvider extends PackageServiceProvider
 {
