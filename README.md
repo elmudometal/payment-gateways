@@ -1,4 +1,4 @@
-# payment gateway integration in laravel
+# payment gateway integration in laravel
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/arca/payment-gateways.svg?style=flat-square)](https://packagist.org/packages/arca/payment-gateways)
 [![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/arca/payment-gateways/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/arca/payment-gateways/actions?query=workflow%3Arun-tests+branch%3Amain)
