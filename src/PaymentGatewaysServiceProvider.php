@@ -19,6 +19,7 @@ class PaymentGatewaysServiceProvider extends PackageServiceProvider
             ->name('payment-gateways')
             ->hasConfigFile()
             ->hasViews()
+            ->hasRoutes(['getnet', 'webpay', 'paypal'])
             ->hasMigration('create_payment-gateways_table')
             ->hasCommand(PaymentGatewaysCommand::class);
     }
