@@ -2,7 +2,7 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
-use App\Models\Orden;
+use Arca\PaymentGateways\Models\Payment;
 use Carbon\Carbon;
 use DateTime;
 use Dnetix\Redirection\PlacetoPay;
@@ -16,129 +16,118 @@ class GetnetController extends Controller
 
     public function __construct()
     {
-        $this->placetoPay = new placetopay([
-            'login' => '7ffbb7bf1f7361b1200b2e8d74e1d76f',
-            'tranKey' => 'SnZP3D63n3I9dH9O',
-            'baseUrl' => 'https://checkout.test.getnet.cl',
+        $this->placetoPay = new PlacetoPay([
+            'login' => config('payment-gateways.getnet.login'),
+            'tranKey' => config('payment-gateways.getnet.tranKey'),
+            'baseUrl' => config('payment-gateways.getnet.baseUrl'),
             'type' => 'rest',
         ]);
     }
 
-    public function init($id)
+    public function init(Payment $payment)
     {
-        $orden = Orden::with(['inscripcion'])->find($id);
-
-        if (empty($orden->token)) {
-            $this->transaction($orden);
-
+        if (empty($payment->token)) {
+            $this->transaction($payment);
             $response = $this->placetoPay->request($this->transaction);
 
-            /** Verificamos respuesta de inicio en Getnet */
-            if ($response->isSuccessful()) {
-                $orden->token = $response->requestId();
-                $orden->save();
+            try {
+                if ($response->isSuccessful()) {
+                    $payment->token = $response->requestId();
+                    $payment->save();
 
-                return view('getnet.init', ['orden' => $orden, 'url' => $response->processUrl()]);
+                    return view('payment-gateways::getnet.init', ['payment' => $payment, 'url' => $response->processUrl()]);
+                }
+            } catch (\Exception $e) {
+                \Log::error('Error en la solicitud de pago: '.$e->getMessage());
             }
 
-            return redirect()->route('getnet.init', $orden);
+            return redirect()->route('getnet.init', $payment->uuid);
         }
 
-        return redirect()->route('getnet.commit', $orden);
+        return redirect()->route('getnet.commit', $payment);
     }
 
-    public function exito($id)
+    public function successful(Payment $payment)
     {
-        $data['orden'] = Orden::find($id);
-        $data['promocion'] = $data['orden']->inscripcion->promocion;
-
-        if ($data['orden']->estatus == Orden::ESTATUS_PAGADA) {
-            $data['result'] = json_decode($data['orden']->comprobante);
-        }
-        dd($data);
-
-        return view('getnet.exito', $data);
-    }
-
-    public function rechazo($id)
-    {
-        $data['orden'] = Orden::find($id);
-        $data['promocion'] = $data['orden']->inscripcion->promocion;
-        $result = json_decode($data['orden']->comprobante);
-        $data['result'] = 'Error Inesperado durante el proceso de WebPay';
-        if (empty($result) || $result->status == 'INITIALIZED') {
-            $data['result'] = 'Error Inesperado durante el proceso de WebPay (Pago Anulado Por el Usuario.)';
-        } elseif (empty($result) || $result->status == 'FAILED') {
-            $data['result'] = $this->responseCode[$result->responseCode];
+        if ($payment->status == Payment::ESTATUS_CANCELADA) {
+            return redirect()->route('getnet.rejected');
         }
 
-        return view('getnet.rechazo', $data);
+        return view('payment-gateways::getnet.successful', ['payment' => $payment]);
     }
 
-    public function commit($id, Request $request)
+    public function rejected(Payment $payment)
     {
-        $data['orden'] = Orden::find($id);
+        $error = $payment->voucher['status']['message'];
+        if (array_key_exists('payment', $payment->voucher)) {
+            $error = $payment->voucher['payment'][0]['status']['message'];
+        }
 
-        $response = $this->placetoPay->query($data['orden']->token);
+        return view('payment-gateways::getnet.rejected', ['payment' => $payment, 'error' => $error]);
+    }
+
+    public function commit(Payment $payment, Request $request)
+    {
+        $response = $this->placetoPay->query($payment->token);
         $result = $response->toArray();
 
         if ($response->isSuccessful()) {
 
             /** Verificamos resultado de transacción */
             if ($response->status()->isApproved()) {
-                // Compra exitosa
-                $data['orden']->comprobante = json_encode($result);
-                $data['orden']->estatus = Orden::ESTATUS_PAGADA;
-                $data['orden']->save();
+                // Compra successful
+                $payment->voucher = ($result);
+                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->save();
 
-                return redirect()->route('getnet.exito', $data['orden']);
+                return redirect()->route('getnet.successful', $payment);
             } else {
-                $data['orden']->comprobante = json_encode($result);
-                $data['orden']->estatus = Orden::ESTATUS_CANCELADA;
-                $data['orden']->save();
+                $payment->voucher = ($result);
+                $payment->status = Payment::ESTATUS_CANCELADA;
+                $payment->save();
 
-                return redirect()->route('getnet.rechazo', $data['orden']);
+                return redirect()->route('getnet.rejected', $payment);
             }
         } else {
-            $data['orden']->comprobante = json_encode($result);
-            $data['orden']->estatus = Orden::ESTATUS_CANCELADA;
-            $ruta = 'getnet.rechazo';
-            if ($result->isApproved() && $result->status == 'AUTHORIZED') {
-                $data['orden']->estatus = Orden::ESTATUS_PAGADA;
-                $ruta = 'getnet.exito';
+            $payment->voucher = ($result);
+            $payment->status = Payment::ESTATUS_CANCELADA;
+            $ruta = 'getnet.rejected';
+            if ($response->status()->isApproved()) {
+                $payment->estatus = Payment::ESTATUS_PAGADA;
+                $ruta = 'getnet.successful';
             }
 
-            $data['orden']->save();
+            $payment->save();
 
-            return redirect()->route($ruta, $data['orden']);
+            return redirect()->route($ruta, $payment->uuid);
         }
     }
 
-    public function addItems(Orden $orden): void
+    protected function addItems(Payment $payment): void
     {
         $this->transaction['payment'] = [
-            'reference' => $orden->id,
-            'description' => 'Detalle de este pago.',
+            'reference' => $payment->id,
+            'description' => $payment->comments,
             'amount' => [
                 'currency' => 'CLP',
-                'total' => 1076.3,
+                'total' => $payment->amount,
             ],
             'allowPartial' => false,
         ];
     }
 
-    public function transaction(Orden $orden)
+    protected function transaction(Payment $payment)
     {
         $this->transaction = [
             'locale' => 'es_CL',
             'expiration' => Carbon::now()->addHour()->format(DateTime::ATOM),
-            'ipAddress' => '127.0.0.1',
+            'ipAddress' => request()->ip(),
             'userAgent' => 'Arca/Site',
-            'returnUrl' => route('getnet.commit', $orden->id),
-            'cancelUrl' => route('getnet.commit', $orden->id),
+            'returnUrl' => route('getnet.commit', $payment->id),
+            'cancelUrl' => route('getnet.commit', $payment->id),
         ];
 
-        $this->addItems($orden);
+        $this->addItems($payment);
 
         return $this->transaction;
     }
