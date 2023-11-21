@@ -2,7 +2,6 @@
 
 namespace Arca\PaymentGateways\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -20,7 +19,7 @@ use Illuminate\Support\Str;
  */
 class Payment extends Model
 {
-    use HasFactory, HasUuids;
+    use HasFactory;
 
     const ESTATUS_PAGADA = 'Pagada';
 
