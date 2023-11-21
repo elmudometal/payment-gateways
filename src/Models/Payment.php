@@ -2,13 +2,25 @@
 
 namespace Arca\PaymentGateways\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
+/**
+ * Arca\PaymentGateways\Models\Payment
+ *
+ * @property string $uuid
+ * @property string $token
+ * @property string $authorization_code
+ * @property string $status
+ * @property float|int $amount
+ * @property string $comments
+ * @property array $voucher
+ */
 class Payment extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids;
 
     const ESTATUS_PAGADA = 'Pagada';
 

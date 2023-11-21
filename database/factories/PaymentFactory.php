@@ -6,7 +6,7 @@ use Arca\PaymentGateways\Models\Payment;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Model>
+ * @extends Factory<Payment>
  */
 class PaymentFactory extends Factory
 {
@@ -14,8 +14,6 @@ class PaymentFactory extends Factory
 
     /**
      * Define the model's default state.
-     *
-     * @return array<string, mixed>
      */
     public function definition(): array
     {

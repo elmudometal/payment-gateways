@@ -93,7 +93,7 @@ class GetnetController extends Controller
             $payment->status = Payment::ESTATUS_CANCELADA;
             $ruta = 'getnet.rejected';
             if ($response->status()->isApproved()) {
-                $payment->estatus = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::ESTATUS_PAGADA;
                 $ruta = 'getnet.successful';
             }
 
