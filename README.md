@@ -23,6 +23,21 @@ You can install the package via composer:
 composer require arca/payment-gateways
 ```
 
+You can install the package via git:
+add in composer.json section require
+```bash
+"arca/payment-gateways": "dev-main",
+```
+And repositories
+```bash
+"repositories": [
+        {
+            "type": "vcs",
+            "url": "git@github.com:elmudometal/payment-gateways.git"
+        }
+    ],
+```
+
 You can publish and run the migrations with:
 
 ```bash
@@ -40,7 +55,25 @@ This is the contents of the published config file:
 
 ```php
 return [
+    'getnet' => [
+        'commerce_name' => 'Getnet Nombre de Comercio',
+        'login' => env('GETNET_LOGIN', '7ffbb7bf1f7361b1200b2e8d74e1d76f'),
+        'tranKey' => env('GETNET_TRAN_KEY', 'SnZP3D63n3I9dH9O'),
+        'baseUrl' => env('GETNET_BASE_URL', 'https://checkout.test.getnet.cl'),
+    ],
+    'webpay' => [
+        'commerce_name' => 'Webpay Nombre de Comercio'
+    ],
+    'paypal' => [
+        'commerce_name' => 'Paypal Nombre de Comercio'
+    ]
 ];
+```
+
+You can publish the assets file with:
+
+```bash
+php artisan vendor:publish --tag="payment-gateways-assets"
 ```
 
 Optionally, you can publish the views using
@@ -52,8 +85,7 @@ php artisan vendor:publish --tag="payment-gateways-views"
 ## Usage
 
 ```php
-$paymentGateways = new Arca\PaymentGateways();
-echo $paymentGateways->echoPhrase('Hello, Arca!');
+TODO
 ```
 
 ## Testing
