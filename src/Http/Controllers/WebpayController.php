@@ -2,7 +2,6 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
-use App\Models\Orden;
 use Arca\PaymentGateways\Enums\TransactionStatus;
 use Arca\PaymentGateways\Models\Payment;
 use Illuminate\Http\Request;
@@ -48,7 +47,7 @@ class WebpayController extends Controller
         try {
             if (empty($payment->token)) {
                 $transaction = new Transaction;
-                $response    = $transaction->create(
+                $response = $transaction->create(
                     $payment->id,
                     session()->getId(),
                     $payment->amount,
@@ -56,11 +55,11 @@ class WebpayController extends Controller
                 );
 
                 /** Verificamos respuesta de inicio en webpay */
-                if (!empty($response->getToken())) {
+                if (! empty($response->getToken())) {
                     $payment->token = $response->getToken();
                     $payment->save();
 
-                    return redirect()->away($response->getUrl() . '?token_ws=' . $response->getToken());
+                    return redirect()->away($response->getUrl().'?token_ws='.$response->getToken());
                 }
 
                 return redirect()->route('webpay.init', $payment->uuid);
@@ -68,7 +67,7 @@ class WebpayController extends Controller
 
             return redirect()->route('webpay.commit', $payment->uuid);
         } catch (\Exception $e) {
-            \Log::error('Error en la solicitud de pago: ' . $e->getMessage());
+            \Log::error('Error en la solicitud de pago: '.$e->getMessage());
         }
     }
 
@@ -86,9 +85,9 @@ class WebpayController extends Controller
 
     public function commit(Payment $payment, Request $request)
     {
-        $transactionStatus  = $this->getStatusTransaction($request);
+        $transactionStatus = $this->getStatusTransaction($request);
 
-        if ($transactionStatus  == TransactionStatus::NORMAL_PAYMENT_FLOW) {
+        if ($transactionStatus == TransactionStatus::NORMAL_PAYMENT_FLOW) {
 
             $response = (new Transaction)->commit($request->token_ws);
 
@@ -97,42 +96,43 @@ class WebpayController extends Controller
                 // Compra exitosa
                 $payment->voucher = json_decode(json_encode($response), true);
                 $payment->authorization_code = $response->authorizationCode;
-                $payment->status  = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::ESTATUS_PAGADA;
                 $payment->save();
 
                 return redirect()->route('webpay.successful', $payment->uuid);
             } else {
                 $payment->voucher = json_decode(json_encode($response), true);
-                $payment->status  = Payment::ESTATUS_CANCELADA;
+                $payment->status = Payment::ESTATUS_CANCELADA;
                 $payment->save();
 
                 return redirect()->route('webpay.rejected', $payment->uuid);
             }
         } else {
-            $response         = (new Transaction)->status($payment->token);
+            $response = (new Transaction)->status($payment->token);
             $payment->voucher = json_decode(json_encode($response), true);
-            $payment->status  = Payment::ESTATUS_CANCELADA;
-            $payment->voucher = $payment->voucher + ['message' => $transactionStatus ->getMessage()];
-            $route            = 'webpay.rejected';
+            $payment->status = Payment::ESTATUS_CANCELADA;
+            $payment->voucher = $payment->voucher + ['message' => $transactionStatus->getMessage()];
+            $route = 'webpay.rejected';
             if ($response->isApproved()) {
                 $payment->status = Payment::ESTATUS_PAGADA;
                 $payment->authorization_code = $response->authorizationCode;
-                $route           = 'webpay.successful';
+                $route = 'webpay.successful';
             }
 
             $payment->save();
+
             return redirect()->route($route, $payment->uuid);
         }
     }
 
     public function getStatusTransaction(Request $request): TransactionStatus
     {
-        $tokenWs     = $request->input('token_ws');
-        $tbkToken    = $request->input('TBK_TOKEN');
+        $tokenWs = $request->input('token_ws');
+        $tbkToken = $request->input('TBK_TOKEN');
         $ordenCompra = $request->input('TBK_ORDEN_COMPRA');
-        $idSesion    = $request->input('TBK_ID_SESION');
+        $idSesion = $request->input('TBK_ID_SESION');
 
-        if ($tbkToken && $ordenCompra && $idSesion && !$tokenWs) {
+        if ($tbkToken && $ordenCompra && $idSesion && ! $tokenWs) {
             return TransactionStatus::USER_ABORTED;
         }
 
@@ -140,11 +140,11 @@ class WebpayController extends Controller
             return TransactionStatus::ERROR_OCCURRED;
         }
 
-        if ($ordenCompra && $idSesion && !$tokenWs && !$tbkToken) {
+        if ($ordenCompra && $idSesion && ! $tokenWs && ! $tbkToken) {
             return TransactionStatus::USER_REDIRECTED_IDLE;
         }
 
-        if ($tokenWs && !$ordenCompra && !$idSesion && !$tbkToken) {
+        if ($tokenWs && ! $ordenCompra && ! $idSesion && ! $tbkToken) {
             return TransactionStatus::NORMAL_PAYMENT_FLOW;
         }
 
