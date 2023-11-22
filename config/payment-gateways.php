@@ -10,6 +10,8 @@ return [
     ],
     'webpay' => [
         'commerce_name' => 'Webpay Nombre de Comercio',
+        'commerce_code' => env('WEBPAY_CODE', ''),
+        'commerce_api_key' => env('WEBPAY_API_KEY', ''),
     ],
     'paypal' => [
         'commerce_name' => 'Paypal Nombre de Comercio',
