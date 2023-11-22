@@ -35,7 +35,7 @@ class GetnetController extends Controller
                     $payment->token = $response->requestId();
                     $payment->save();
 
-                    return view('payment-gateways::getnet.init', ['payment' => $payment, 'url' => $response->processUrl()]);
+                    return redirect()->away($response->processUrl());
                 }
             } catch (\Exception $e) {
                 \Log::error('Error en la solicitud de pago: '.$e->getMessage());
@@ -44,7 +44,7 @@ class GetnetController extends Controller
             return redirect()->route('getnet.init', $payment->uuid);
         }
 
-        return redirect()->route('getnet.commit', $payment);
+        return redirect()->route('getnet.commit', $payment->uuid);
     }
 
     public function successful(Payment $payment)
@@ -76,24 +76,26 @@ class GetnetController extends Controller
             /** Verificamos resultado de transacción */
             if ($response->status()->isApproved()) {
                 // Compra successful
-                $payment->voucher = ($result);
+                $payment->voucher = $result;
                 $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->authorization_code = $result['payment'][0]['authorization'];
                 $payment->save();
 
                 return redirect()->route('getnet.successful', $payment);
             } else {
-                $payment->voucher = ($result);
+                $payment->voucher = $result;
                 $payment->status = Payment::ESTATUS_CANCELADA;
                 $payment->save();
 
                 return redirect()->route('getnet.rejected', $payment);
             }
         } else {
-            $payment->voucher = ($result);
+            $payment->voucher = $result;
             $payment->status = Payment::ESTATUS_CANCELADA;
             $ruta = 'getnet.rejected';
             if ($response->status()->isApproved()) {
                 $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->authorization_code = $result['payment'][0]['authorization'];
                 $ruta = 'getnet.successful';
             }
 
@@ -123,8 +125,8 @@ class GetnetController extends Controller
             'expiration' => Carbon::now()->addHour()->format(DateTime::ATOM),
             'ipAddress' => request()->ip(),
             'userAgent' => 'Arca/Site',
-            'returnUrl' => route('getnet.commit', $payment->id),
-            'cancelUrl' => route('getnet.commit', $payment->id),
+            'returnUrl' => route('getnet.commit', $payment->uuid),
+            'cancelUrl' => route('getnet.commit', $payment->uuid),
         ];
 
         $this->addItems($payment);
