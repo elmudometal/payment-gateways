@@ -2,7 +2,8 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
-use App\Models\Orden;
+use Arca\PaymentGateways\Enums\TransactionStatus;
+use Arca\PaymentGateways\Models\Payment;
 use Illuminate\Http\Request;
 use Transbank\Webpay\WebpayPlus;
 use Transbank\Webpay\WebpayPlus\Transaction;
@@ -35,102 +36,118 @@ class WebpayController extends Controller
     {
         /** Webpay api context **/
         if (app()->environment('production')) {
-            WebpayPlus::configureForProduction(config('webpay.commerce_code'), config('webpay.private_key'));
+            WebpayPlus::configureForProduction(config('webpay.commerce_code'), config('webpay.commerce_api_key'));
         } else {
             WebpayPlus::configureForTesting();
         }
     }
 
-    public function init($id)
+    public function init(Payment $payment)
     {
-        $data['orden'] = Orden::with(['inscripcion'])->find($id);
+        try {
+            if (empty($payment->token)) {
+                $transaction = new Transaction;
+                $response = $transaction->create(
+                    $payment->id,
+                    session()->getId(),
+                    $payment->amount,
+                    route('webpay.commit', $payment->uuid)
+                );
 
-        if (empty($data['orden']->token)) {
-            $transaction = new Transaction;
-            $data['result'] = $transaction->create(
-                $data['orden']->id,
-                session()->getId(),
-                $data['orden']->monto,
-                route('webpay.commit', $data['orden'])
-            );
+                /** Verificamos respuesta de inicio en webpay */
+                if (! empty($response->getToken())) {
+                    $payment->token = $response->getToken();
+                    $payment->save();
 
-            /** Verificamos respuesta de inicio en webpay */
-            if (! empty($data['result']->getToken())) {
-                $data['orden']->token = $data['result']->getToken();
-                $data['orden']->save();
+                    return redirect()->away($response->getUrl().'?token_ws='.$response->getToken());
+                }
 
-                return view('webpay.init', $data);
+                return redirect()->route('webpay.init', $payment->uuid);
             }
 
-            return redirect()->route('webpay.init', $data['orden']);
+            return redirect()->route('webpay.commit', $payment->uuid);
+        } catch (\Exception $e) {
+            \Log::error('Error en la solicitud de pago: '.$e->getMessage());
         }
-
-        return redirect()->route('webpay.commit', $data['orden']);
     }
 
-    public function exito($id)
+    public function successful(Payment $payment)
     {
-        $data['orden'] = Orden::find($id);
-        $data['promocion'] = $data['orden']->inscripcion->promocion;
         $data['paymentTypeCode'] = $this->paymentTypeCode;
 
-        if ($data['orden']->estatus == Orden::ESTATUS_PAGADA) {
-            $data['result'] = json_decode($data['orden']->comprobante);
-        }
-
-        return view('webpay.exito', $data);
+        return view('payment-gateways::webpay.successful', ['payment' => $payment, 'paymentTypeCode' => $this->paymentTypeCode]);
     }
 
-    public function rechazo($id)
+    public function rejected(Payment $payment)
     {
-        $data['orden'] = Orden::find($id);
-        $data['promocion'] = $data['orden']->inscripcion->promocion;
-        $result = json_decode($data['orden']->comprobante);
-        $data['result'] = 'Error Inesperado durante el proceso de WebPay';
-        if (empty($result) || $result->status == 'INITIALIZED') {
-            $data['result'] = 'Error Inesperado durante el proceso de WebPay (Pago Anulado Por el Usuario.)';
-        } elseif (empty($result) || $result->status == 'FAILED') {
-            $data['result'] = $this->responseCode[$result->responseCode];
-        }
-
-        return view('webpay.rechazo', $data);
+        return view('payment-gateways::webpay.rejected', ['payment' => $payment]);
     }
 
-    public function commit($id, Request $request)
+    public function commit(Payment $payment, Request $request)
     {
-        $data['orden'] = Orden::find($id);
+        $transactionStatus = $this->getStatusTransaction($request);
 
-        if (! empty($request->token_ws)) {
-            $result = (new Transaction)->commit($request->token_ws);
+        if ($transactionStatus == TransactionStatus::NORMAL_PAYMENT_FLOW) {
+
+            $response = (new Transaction)->commit($request->token_ws);
 
             /** Verificamos resultado de transacción */
-            if ($result->isApproved()) {
+            if ($response->isApproved()) {
                 // Compra exitosa
-                $data['orden']->comprobante = json_encode($result);
-                $data['orden']->estatus = Orden::ESTATUS_PAGADA;
-                $data['orden']->save();
+                $payment->voucher = json_decode(json_encode($response), true);
+                $payment->authorization_code = $response->authorizationCode;
+                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->save();
 
-                return redirect()->route('webpay.exito', $data['orden']);
+                return redirect()->route('webpay.successful', $payment->uuid);
             } else {
-                $data['orden']->comprobante = json_encode($result);
-                $data['orden']->estatus = Orden::ESTATUS_CANCELADA;
-                $data['orden']->save();
+                $payment->voucher = json_decode(json_encode($response), true);
+                $payment->status = Payment::ESTATUS_CANCELADA;
+                $payment->save();
 
-                return redirect()->route('webpay.rechazo', $data['orden']);
+                return redirect()->route('webpay.rejected', $payment->uuid);
             }
         } else {
-            $result = (new Transaction)->status($data['orden']->token);
-            $data['orden']->comprobante = json_encode($result);
-            $data['orden']->estatus = Orden::ESTATUS_CANCELADA;
-            $ruta = 'webpay.rechazo';
-            if ($result->isApproved() && $result->status == 'AUTHORIZED') {
-                $data['orden']->estatus = Orden::ESTATUS_PAGADA;
-                $ruta = 'webpay.exito';
+            $response = (new Transaction)->status($payment->token);
+            $payment->voucher = json_decode(json_encode($response), true);
+            $payment->status = Payment::ESTATUS_CANCELADA;
+            $payment->voucher = $payment->voucher + ['message' => $transactionStatus->getMessage()];
+            $route = 'webpay.rejected';
+            if ($response->isApproved()) {
+                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->authorization_code = $response->authorizationCode;
+                $route = 'webpay.successful';
             }
 
-            $data['orden']->save();
+            $payment->save();
 
-            return redirect()->route($ruta, $data['orden']);
+            return redirect()->route($route, $payment->uuid);
         }
+    }
+
+    public function getStatusTransaction(Request $request): TransactionStatus
+    {
+        $tokenWs = $request->input('token_ws');
+        $tbkToken = $request->input('TBK_TOKEN');
+        $ordenCompra = $request->input('TBK_ORDEN_COMPRA');
+        $idSesion = $request->input('TBK_ID_SESION');
+
+        if ($tbkToken && $ordenCompra && $idSesion && ! $tokenWs) {
+            return TransactionStatus::USER_ABORTED;
+        }
+
+        if ($tokenWs && $ordenCompra && $idSesion && $tbkToken) {
+            return TransactionStatus::ERROR_OCCURRED;
+        }
+
+        if ($ordenCompra && $idSesion && ! $tokenWs && ! $tbkToken) {
+            return TransactionStatus::USER_REDIRECTED_IDLE;
+        }
+
+        if ($tokenWs && ! $ordenCompra && ! $idSesion && ! $tbkToken) {
+            return TransactionStatus::NORMAL_PAYMENT_FLOW;
+        }
+
+        return TransactionStatus::UNKNOWN_STATUS;
     }
 }
