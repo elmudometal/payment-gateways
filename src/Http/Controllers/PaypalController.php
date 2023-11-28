@@ -2,134 +2,132 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
-use App\Models\Orden;
-use Illuminate\Http\Request;
-use PayPalCheckoutSdk\Core\PayPalHttpClient;
-use PayPalCheckoutSdk\Core\ProductionEnvironment;
-use PayPalCheckoutSdk\Core\SandboxEnvironment;
-use PayPalCheckoutSdk\Orders\OrdersCaptureRequest;
-use PayPalCheckoutSdk\Orders\OrdersCreateRequest;
-use PayPalHttp\HttpException;
+use Arca\PaymentGateways\Models\Payment;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Http;
 
 /** All Paypal Details class **/
 class PaypalController extends Controller
 {
-    /**
-     * Create a new controller instance.
-     *
-     * @return void
-     */
+    private $baseURL;
+
+    private $clientId;
+
+    private $clientSecret;
+
     public function __construct()
     {
-        /** PayPal api context **/
-        $this->paypal_conf = \Config::get('paypal');
-        if (env('APP_ENV') == 'local') {
-            $environment = new SandboxEnvironment($this->paypal_conf['client_id'], $this->paypal_conf['secret']);
-        } else {
-            $environment = new ProductionEnvironment($this->paypal_conf['client_id'], $this->paypal_conf['secret']);
-        }
-        $this->paypal = new PayPalHttpClient($environment);
+        $this->baseURL = config('payment-gateways.paypal.base_url');
+        $this->clientId = config('payment-gateways.paypal.client_id');
+        $this->clientSecret = config('payment-gateways.paypal.client_secret');
     }
 
-    public function init(Request $request)
+    public function init(Payment $payment)
     {
-        $data['CLIENT_ID'] = $this->paypal_conf['client_id'];
-        $data['orden'] = Orden::find($request->orden_id);
-        $data['curso'] = $data['orden']->inscripcion->curso;
-
-        if ($data['orden']->estatus == Orden::ESTATUS_PAGADA) {
-            return self::exito($data['orden']->id);
-        } elseif ($data['orden']->estatus == Orden::ESTATUS_CANCELADA) {
-            return self::rechazo($data['orden']->id);
+        if ($payment->status == Payment::ESTATUS_PAGADA) {
+            return redirect()->route('paypal.successful', $payment->uuid);
+        } elseif ($payment->status == Payment::ESTATUS_CANCELADA) {
+            return redirect()->route('paypal.rejected', $payment->uuid);
         }
 
-        return view('paypal.init', $data);
+        return view('payment-gateways::paypal.init', ['payment' => $payment, 'clientId' => $this->clientId]);
     }
 
-    public function create(Request $request, $id)
+    public function create(Payment $payment)
     {
-        $data['CLIENT_ID'] = $this->paypal_conf['client_id'];
-        $data['orden'] = Orden::find($id);
-        $data['curso'] = $data['orden']->inscripcion->curso;
+        try {
+            $accessToken = $this->generateAccessToken();
 
-        $request = new OrdersCreateRequest();
-        $request->prefer('return=representation');
-
-        $request->body = [
-            'intent' => 'CAPTURE',
-            'purchase_units' => [
-                [
-                    'reference_id' => $data['orden']->id,
-                    'amount' => [
-                        'value' => $data['orden']->monto,
-                        'currency_code' => 'USD',
+            $response = Http::acceptJson()
+                ->withToken($accessToken)
+                ->post($this->baseURL.'/v2/checkout/orders', [
+                    'intent' => 'CAPTURE',
+                    'purchase_units' => [
+                        [
+                            'amount' => [
+                                'currency_code' => 'USD',
+                                'value' => $payment->amount,
+                            ],
+                        ],
                     ],
-                ],
-            ],
-            'application_context' => [
-                'cancel_url' => route('paypal.rechazo', $data['orden']->id),
-                'return_url' => route('paypal.exito', $data['orden']->id),
-            ],
-        ];
+                ]);
 
-        try {
-            // Call API with your client and get a response for your call
-            $response = $this->paypal->execute($request);
-            $data['orden']->comprobante = json_encode($response);
-            $data['orden']->save();
+            $data = $response->json();
 
-            return response()->json($response->result);
-            // If call returns body in response, you can get the deserialized version from the result attribute of the response
-        } catch (HttpException $ex) {
-            return response()->json([
-                'status' => $ex->statusCode,
-                'message' => json_decode($ex->getMessage(), true),
-            ]);
+            return response()->json($data, $response->status());
+        } catch (\Exception $e) {
+            \Log::error('Failed to create order: '.$e->getMessage());
+
+            return response()->json(['error' => 'Failed to create order.'], 500);
         }
     }
 
-    public function capture($id, $OrderID)
+    public function capture(Payment $payment, $orderID)
     {
-        $request = new OrdersCaptureRequest($OrderID);
-        $orden = Orden::find($id);
-        // To toggle printing the whole response body comment/uncomment below line
         try {
-            $response = $this->paypal->execute($request);
-            $orden->comprobante = json_encode($response);
-            $orden->estatus = Orden::ESTATUS_PAGADA;
-            $orden->save();
+            $accessToken = $this->generateAccessToken();
 
-            return response()->json($response->result);
-        } catch (HttpException $ex) {
-            $orden->estatus = Orden::ESTATUS_CANCELADA;
-            $orden->comprobante = json_encode([
-                'status' => $ex->statusCode,
-                'object' => json_decode($ex->getMessage(), true),
-            ]);
-            $orden->save();
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+            ])->withToken($accessToken)
+                ->send('post', $this->baseURL."/v2/checkout/orders/{$orderID}/capture");
 
-            return response()->json([
-                'status' => $ex->statusCode,
-                'object' => json_decode($ex->getMessage(), true),
-            ]);
+            $data = $response->json();
+            $dataInfo = Arr::dot($data);
+
+            if ($response->successful() && in_array($dataInfo['status'], ['COMPLETED', 'APPROVED'])) {
+                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->authorization_code = $dataInfo['purchase_units.0.payments.captures.0.id'];
+            } else {
+                $payment->status = Payment::ESTATUS_CANCELADA;
+            }
+
+            $payment->voucher = $data;
+            $payment->save();
+
+            return response()->json($data, $response->status());
+        } catch (\Exception $e) {
+            \Log::error('Failed to capture order: '.$e->getMessage());
+
+            return response()->json(['error' => 'Failed to capture order.'], 500);
         }
     }
 
-    public function rechazo($orden)
+    private function generateAccessToken()
     {
-        $data['orden'] = Orden::find($orden);
-        $data['curso'] = $data['orden']->inscripcion->curso;
-        $data['result'] = json_decode($data['orden']->comprobante);
+        try {
+            $response = Http::asForm()
+                ->withBasicAuth($this->clientId, $this->clientSecret)
+                ->post($this->baseURL.'/v1/oauth2/token', [
+                    'grant_type' => 'client_credentials',
+                ]);
 
-        return view('paypal.rechazo', $data);
+            $data = $response->json();
+
+            return $data['access_token'];
+        } catch (\Exception $e) {
+            \Log::error('Error al conectar a paypal: '.$e->getMessage());
+
+            return false;
+        }
     }
 
-    public function exito($orden)
+    public function successful(Payment $payment)
     {
-        $data['orden'] = Orden::find($orden);
-        $data['curso'] = $data['orden']->inscripcion->curso;
-        $data['result'] = optional(json_decode($data['orden']->comprobante))->result;
+        if ($payment->status == Payment::ESTATUS_CANCELADA) {
+            return redirect()->route('getnet.rejected');
+        }
 
-        return view('paypal.exito', $data);
+        return view('payment-gateways::paypal.successful', ['payment' => $payment]);
+    }
+
+    public function rejected(Payment $payment)
+    {
+        $error = 'Error inesperado';
+        if (array_key_exists('details', $payment->voucher)) {
+            $error = $payment->voucher['details'][0]['description'];
+        }
+
+        return view('payment-gateways::paypal.rejected', ['payment' => $payment, 'error' => $error]);
     }
 }

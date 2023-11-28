@@ -36,7 +36,7 @@ class WebpayController extends Controller
     {
         /** Webpay api context **/
         if (app()->environment('production')) {
-            WebpayPlus::configureForProduction(config('webpay.commerce_code'), config('webpay.commerce_api_key'));
+            WebpayPlus::configureForProduction(config('payment-gateways.webpay.commerce_code'), config('payment-gateways.webpay.commerce_api_key'));
         } else {
             WebpayPlus::configureForTesting();
         }
