@@ -47,27 +47,9 @@ class GetnetController extends Controller
         return redirect()->route('getnet.commit', $payment->uuid);
     }
 
-    public function successful(Payment $payment)
-    {
-        if ($payment->status == Payment::ESTATUS_CANCELADA) {
-            return redirect()->route('getnet.rejected');
-        }
-
-        return view('payment-gateways::getnet.successful', ['payment' => $payment]);
-    }
-
-    public function rejected(Payment $payment)
-    {
-        $error = $payment->voucher['status']['message'];
-        if (array_key_exists('payment', $payment->voucher)) {
-            $error = $payment->voucher['payment'][0]['status']['message'];
-        }
-
-        return view('payment-gateways::getnet.rejected', ['payment' => $payment, 'error' => $error]);
-    }
-
     public function commit(Payment $payment, Request $request)
     {
+        $this->beforeCommit($payment);
         $response = $this->placetoPay->query($payment->token);
         $result = $response->toArray();
 
@@ -80,6 +62,8 @@ class GetnetController extends Controller
                 $payment->status = Payment::ESTATUS_PAGADA;
                 $payment->authorization_code = $result['payment'][0]['authorization'];
                 $payment->save();
+
+                $this->afterCommit($payment);
 
                 return redirect()->route('getnet.successful', $payment);
             } else {
@@ -103,6 +87,25 @@ class GetnetController extends Controller
 
             return redirect()->route($ruta, $payment->uuid);
         }
+    }
+
+    public function successful(Payment $payment)
+    {
+        if ($payment->status != Payment::ESTATUS_PAGADA) {
+            return redirect()->route('getnet.rejected');
+        }
+
+        $this->afterSuccessful($payment);
+    }
+
+    public function rejected(Payment $payment)
+    {
+        $error = $payment->voucher['status']['message'];
+        if (array_key_exists('payment', $payment->voucher)) {
+            $error = $payment->voucher['payment'][0]['status']['message'];
+        }
+
+        return $this->afterRejected($payment, $error);
     }
 
     protected function addItems(Payment $payment): void
@@ -132,5 +135,23 @@ class GetnetController extends Controller
         $this->addItems($payment);
 
         return $this->transaction;
+    }
+
+    public function beforeCommit(Payment $payment)
+    {
+    }
+
+    public function afterCommit(Payment $payment)
+    {
+    }
+
+    public function afterSuccessful(Payment $payment)
+    {
+        return view('payment-gateways::getnet.successful', ['payment' => $payment]);
+    }
+
+    public function afterRejected(Payment $payment, string $error)
+    {
+        return view('payment-gateways::getnet.rejected', ['payment' => $payment, 'error' => $error]);
     }
 }

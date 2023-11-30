@@ -41,7 +41,7 @@
 
                 async function onApproveCallback(data, actions) {
                     try {
-                        const response = await fetch(`/paypal/capture/{{ $payment->uuid }}/${data.orderID}`, {
+                        const response = await fetch(`/paypal/commit/{{ $payment->uuid }}/${data.orderID}`, {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
