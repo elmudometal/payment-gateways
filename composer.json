@@ -6,7 +6,7 @@
         "laravel",
         "payment-gateways"
     ],
-    "homepage": "https://github.com/arca/payment-gateways",
+    "homepage": "https://github.com/elmudometal/payment-gateways",
     "license": "MIT",
     "authors": [
         {
@@ -84,5 +84,5 @@
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": false
 }
