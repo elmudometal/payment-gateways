@@ -50,7 +50,7 @@ class GetnetController extends Controller
     public function commit(Payment $payment, Request $request)
     {
         $this->beforeCommit($payment);
-        $response = $this->placetoPay->query($payment->token);
+        $response = $this->placetoPay->query((int) $payment->token);
         $result = $response->toArray();
 
         if ($response->isSuccessful()) {

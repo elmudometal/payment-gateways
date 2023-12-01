@@ -48,7 +48,7 @@ class WebpayController extends Controller
             if (empty($payment->token)) {
                 $transaction = new Transaction;
                 $response = $transaction->create(
-                    $payment->id,
+                    (string) $payment->id,
                     session()->getId(),
                     $payment->amount,
                     route('webpay.commit', $payment->uuid)
