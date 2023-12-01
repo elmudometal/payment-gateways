@@ -62,11 +62,11 @@ class PaypalController extends Controller
         }
     }
 
-    public function capture(Payment $payment, $orderID)
+    public function commit(Payment $payment, $orderID)
     {
         try {
             $accessToken = $this->generateAccessToken();
-
+            $this->beforeCommit($payment);
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
             ])->withToken($accessToken)
@@ -74,6 +74,7 @@ class PaypalController extends Controller
 
             $data = $response->json();
             $dataInfo = Arr::dot($data);
+            $payment->voucher = $data;
 
             if ($response->successful() && in_array($dataInfo['status'], ['COMPLETED', 'APPROVED'])) {
                 $payment->status = Payment::ESTATUS_PAGADA;
@@ -82,8 +83,9 @@ class PaypalController extends Controller
                 $payment->status = Payment::ESTATUS_CANCELADA;
             }
 
-            $payment->voucher = $data;
             $payment->save();
+
+            $this->afterCommit($payment);
 
             return response()->json($data, $response->status());
         } catch (\Exception $e) {
@@ -114,11 +116,11 @@ class PaypalController extends Controller
 
     public function successful(Payment $payment)
     {
-        if ($payment->status == Payment::ESTATUS_CANCELADA) {
-            return redirect()->route('getnet.rejected');
+        if ($payment->status != Payment::ESTATUS_PAGADA) {
+            return redirect()->route('paypal.rejected');
         }
 
-        return view('payment-gateways::paypal.successful', ['payment' => $payment]);
+        return $this->afterSuccessful($payment);
     }
 
     public function rejected(Payment $payment)
@@ -128,6 +130,24 @@ class PaypalController extends Controller
             $error = $payment->voucher['details'][0]['description'];
         }
 
+        return $this->afterRejected($payment, $error);
+    }
+
+    public function beforeCommit(Payment $payment)
+    {
+    }
+
+    public function afterCommit(Payment $payment)
+    {
+    }
+
+    public function afterSuccessful(Payment $payment)
+    {
+        return view('payment-gateways::paypal.successful', ['payment' => $payment]);
+    }
+
+    public function afterRejected(Payment $payment, string $error)
+    {
         return view('payment-gateways::paypal.rejected', ['payment' => $payment, 'error' => $error]);
     }
 }
