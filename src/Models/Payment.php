@@ -2,6 +2,8 @@
 
 namespace Arca\PaymentGateways\Models;
 
+use Arca\PaymentGateways\Events\PaymentApproved;
+use Arca\PaymentGateways\Events\PaymentRejected;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -47,9 +49,12 @@ class Payment extends Model
         'voucher' => 'json',
     ];
 
-    //    protected $dispatchesEvents = [
-    //        'updated' => OrderApproved::class,
-    //    ];
+    protected $dispatchesEvents = [
+        'updated' => [
+            PaymentApproved::class,
+            PaymentRejected::class,
+        ],
+    ];
 
     protected static function newFactory()
     {
