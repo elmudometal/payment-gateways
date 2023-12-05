@@ -21,9 +21,7 @@ class PaymentApproved
      */
     public function __construct(Payment $payment)
     {
-        if ($payment->wasChanged('status') && $payment->status == Payment::ESTATUS_PAGADA) {
-            $this->payment = $payment;
-        }
+        $this->payment = $payment;
     }
 
     /**

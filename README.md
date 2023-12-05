@@ -31,11 +31,11 @@ add in composer.json section require
 And repositories
 ```bash
 "repositories": [
-        {
-            "type": "vcs",
-            "url": "git@github.com:elmudometal/payment-gateways.git"
-        }
-    ],
+  {
+    "type": "composer",
+    "url": "https://repositorios.arca.cl"
+  }
+]
 ```
 
 You can publish and run the migrations with:
@@ -60,13 +60,21 @@ return [
         'login' => env('GETNET_LOGIN', '7ffbb7bf1f7361b1200b2e8d74e1d76f'),
         'tranKey' => env('GETNET_TRAN_KEY', 'SnZP3D63n3I9dH9O'),
         'baseUrl' => env('GETNET_BASE_URL', 'https://checkout.test.getnet.cl'),
+        'controller' => \Arca\PaymentGateways\Http\Controllers\GetnetController::class,
     ],
     'webpay' => [
-        'commerce_name' => 'Webpay Nombre de Comercio'
+        'commerce_name' => 'Webpay Nombre de Comercio',
+        'commerce_code' => env('WEBPAY_CODE', ''),
+        'commerce_api_key' => env('WEBPAY_API_KEY', ''),
+        'controller' => \Arca\PaymentGateways\Http\Controllers\WebpayController::class,
     ],
     'paypal' => [
-        'commerce_name' => 'Paypal Nombre de Comercio'
-    ]
+        'commerce_name' => 'Paypal Nombre de Comercio',
+        'base_url' => env('PAYPAL_CLIENT_URL', 'https://api-m.sandbox.paypal.com'),
+        'client_id' => env('PAYPAL_CLIENT_ID', ''),
+        'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
+        'controller' => \Arca\PaymentGateways\Http\Controllers\PaypalController::class,
+    ],
 ];
 ```
 
@@ -82,10 +90,23 @@ Optionally, you can publish the views using
 php artisan vendor:publish --tag="payment-gateways-views"
 ```
 
-## Usage
+## Events
 
+```bash
+ php artisan make:listener YourListenerClass --event=PaymentApproved
+ php artisan make:listener Your2ListenerClass --event=PaymentRejected
+```
+
+EventServiceProvider
 ```php
-TODO
+protected $listen = [        
+        PaymentApproved::class => [
+            YourListenerClass::class,
+        ],
+        PaymentRejected::class => [
+            Your2ListenerClass::class,
+        ],
+    ];
 ```
 
 ## Testing

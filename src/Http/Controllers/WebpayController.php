@@ -141,7 +141,7 @@ class WebpayController extends Controller
 
     public function successful(Payment $payment)
     {
-        $this->afterSuccessful($payment);
+        return $this->afterSuccessful($payment);
     }
 
     public function rejected(Payment $payment)
