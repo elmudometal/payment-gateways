@@ -49,12 +49,20 @@ class Payment extends Model
         'voucher' => 'json',
     ];
 
-    protected $dispatchesEvents = [
-        'updated' => [
-            PaymentApproved::class,
-            PaymentRejected::class,
-        ],
-    ];
+    protected static function booted(): void
+    {
+        static::updated(function (Payment $payment) {
+            if ($payment->wasChanged('status')) {
+                if ($payment->status == Payment::ESTATUS_PAGADA) {
+                    PaymentApproved::dispatch($payment);
+                }
+
+                if ($payment->status == Payment::ESTATUS_CANCELADA) {
+                    PaymentRejected::dispatch($payment);
+                }
+            }
+        });
+    }
 
     protected static function newFactory()
     {

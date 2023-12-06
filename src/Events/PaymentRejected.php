@@ -21,9 +21,7 @@ class PaymentRejected
      */
     public function __construct(Payment $payment)
     {
-        if ($payment->wasChanged('status') && $payment->status == Payment::ESTATUS_CANCELADA) {
-            $this->payment = $payment;
-        }
+        $this->payment = $payment;
     }
 
     /**

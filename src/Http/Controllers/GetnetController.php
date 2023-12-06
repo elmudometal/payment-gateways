@@ -95,7 +95,7 @@ class GetnetController extends Controller
             return redirect()->route('getnet.rejected');
         }
 
-        $this->afterSuccessful($payment);
+        return $this->afterSuccessful($payment);
     }
 
     public function rejected(Payment $payment)
