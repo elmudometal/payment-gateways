@@ -2,6 +2,8 @@
 
 namespace Arca\PaymentGateways\Models;
 
+use Arca\PaymentGateways\Events\PaymentApproved;
+use Arca\PaymentGateways\Events\PaymentRejected;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -47,9 +49,20 @@ class Payment extends Model
         'voucher' => 'json',
     ];
 
-    //    protected $dispatchesEvents = [
-    //        'updated' => OrderApproved::class,
-    //    ];
+    protected static function booted(): void
+    {
+        static::updated(function (Payment $payment) {
+            if ($payment->wasChanged('status')) {
+                if ($payment->status == Payment::ESTATUS_PAGADA) {
+                    PaymentApproved::dispatch($payment);
+                }
+
+                if ($payment->status == Payment::ESTATUS_CANCELADA) {
+                    PaymentRejected::dispatch($payment);
+                }
+            }
+        });
+    }
 
     protected static function newFactory()
     {

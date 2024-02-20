@@ -6,7 +6,7 @@
         "laravel",
         "payment-gateways"
     ],
-    "homepage": "https://github.com/arca/payment-gateways",
+    "homepage": "https://github.com/elmudometal/payment-gateways",
     "license": "MIT",
     "authors": [
         {
@@ -18,8 +18,7 @@
     "require": {
         "php": "^8.1",
         "dnetix/redirection": "^2.1",
-        "illuminate/contracts": "^10.0",
-        "paypal/paypal-checkout-sdk": "^1.0",
+        "illuminate/contracts": "^9.0 || ^10.0",
         "spatie/laravel-package-tools": "^1.14.0",
         "transbank/transbank-sdk": "^3.0"
     },
@@ -84,5 +83,5 @@
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": false
 }

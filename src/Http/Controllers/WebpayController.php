@@ -36,7 +36,7 @@ class WebpayController extends Controller
     {
         /** Webpay api context **/
         if (app()->environment('production')) {
-            WebpayPlus::configureForProduction(config('webpay.commerce_code'), config('webpay.commerce_api_key'));
+            WebpayPlus::configureForProduction(config('payment-gateways.webpay.commerce_code'), config('payment-gateways.webpay.commerce_api_key'));
         } else {
             WebpayPlus::configureForTesting();
         }
@@ -48,7 +48,7 @@ class WebpayController extends Controller
             if (empty($payment->token)) {
                 $transaction = new Transaction;
                 $response = $transaction->create(
-                    $payment->id,
+                    (string) $payment->id,
                     session()->getId(),
                     $payment->amount,
                     route('webpay.commit', $payment->uuid)
@@ -71,18 +71,6 @@ class WebpayController extends Controller
         }
     }
 
-    public function successful(Payment $payment)
-    {
-        $data['paymentTypeCode'] = $this->paymentTypeCode;
-
-        return view('payment-gateways::webpay.successful', ['payment' => $payment, 'paymentTypeCode' => $this->paymentTypeCode]);
-    }
-
-    public function rejected(Payment $payment)
-    {
-        return view('payment-gateways::webpay.rejected', ['payment' => $payment]);
-    }
-
     public function commit(Payment $payment, Request $request)
     {
         $transactionStatus = $this->getStatusTransaction($request);
@@ -95,8 +83,8 @@ class WebpayController extends Controller
             if ($response->isApproved()) {
                 // Compra exitosa
                 $payment->voucher = json_decode(json_encode($response), true);
-                $payment->authorization_code = $response->authorizationCode;
                 $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->authorization_code = $response->authorizationCode;
                 $payment->save();
 
                 return redirect()->route('webpay.successful', $payment->uuid);
@@ -149,5 +137,35 @@ class WebpayController extends Controller
         }
 
         return TransactionStatus::UNKNOWN_STATUS;
+    }
+
+    public function successful(Payment $payment)
+    {
+        return $this->afterSuccessful($payment);
+    }
+
+    public function rejected(Payment $payment)
+    {
+        return $this->afterRejected($payment);
+    }
+
+    public function beforeCommit(Payment $payment)
+    {
+    }
+
+    public function afterCommit(Payment $payment)
+    {
+    }
+
+    public function afterSuccessful(Payment $payment)
+    {
+        $data['paymentTypeCode'] = $this->paymentTypeCode;
+
+        return view('payment-gateways::webpay.successful', ['payment' => $payment, 'paymentTypeCode' => $this->paymentTypeCode]);
+    }
+
+    public function afterRejected(Payment $payment)
+    {
+        return view('payment-gateways::webpay.rejected', ['payment' => $payment]);
     }
 }

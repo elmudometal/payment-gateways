@@ -1,10 +1,13 @@
 <?php
 
-use Arca\PaymentGateways\Http\Controllers\PaypalController;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 
-Route::get('paypal/init', [PaypalController::class, 'init'])->name('paypal.init');
-Route::post('paypal/create/{id}', [PaypalController::class, 'create'])->name('paypal.create');
-Route::post('paypal/capture/{id}/{OrderID?}', [PaypalController::class, 'capture'])->name('paypal.capture');
+Route::middleware(SubstituteBindings::class)->group(function () {
+    $controller = config('payment-gateways.paypal.controller');
+    Route::get('paypal/init/{payment:uuid}', [$controller, 'init'])->name('paypal.init');
+    Route::post('paypal/create/{payment:uuid}', [$controller, 'create'])->name('paypal.create');
+    Route::post('paypal/commit/{payment:uuid}/{OrderID?}', [$controller, 'commit'])->name('paypal.commit');
 
-Route::get('paypal/exito', [PaypalController::class, 'exito'])->name('paypal.exito');
-Route::get('paypal/rechazo', [PaypalController::class, 'rechazo'])->name('paypal.rechazo');
+    Route::get('paypal/successful/{payment:uuid}', [$controller, 'successful'])->name('paypal.successful');
+    Route::get('paypal/rejected/{payment:uuid}', [$controller, 'rejected'])->name('paypal.rejected');
+});
