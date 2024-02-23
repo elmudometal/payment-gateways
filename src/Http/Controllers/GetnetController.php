@@ -7,6 +7,7 @@ use Carbon\Carbon;
 use DateTime;
 use Dnetix\Redirection\PlacetoPay;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class GetnetController extends Controller
 {
@@ -112,7 +113,7 @@ class GetnetController extends Controller
     {
         $this->transaction['payment'] = [
             'reference' => $payment->id,
-            'description' => $payment->comments,
+            'description' => Str::limit($payment->comments, 240),
             'amount' => [
                 'currency' => 'CLP',
                 'total' => $payment->amount,
