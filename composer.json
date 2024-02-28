@@ -4,7 +4,10 @@
     "keywords": [
         "arca",
         "laravel",
-        "payment-gateways"
+        "payment-gateways",
+        "paypal",
+        "webpay",
+        "getnet"
     ],
     "homepage": "https://github.com/elmudometal/payment-gateways",
     "license": "MIT",
