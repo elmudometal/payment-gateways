@@ -6,6 +6,7 @@ use Arca\PaymentGateways\Events\PaymentApproved;
 use Arca\PaymentGateways\Events\PaymentRejected;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Str;
 
 /**
@@ -71,5 +72,10 @@ class Payment extends Model
         $path = $package.'Database\\Factories\\'.$modelName.'Factory';
 
         return $path::new();
+    }
+
+    public function model(): MorphTo
+    {
+        return $this->morphTo();
     }
 }
