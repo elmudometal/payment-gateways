@@ -24,13 +24,13 @@ class Payment extends Model
 {
     use HasFactory;
 
-    const ESTATUS_PAGADA = 'Pagada';
+    const PAID_STATUS = 'Paid';
 
-    const ESTATUS_PENDIENTE = 'Pendiente';
+    const PENDING_STATUS = 'Pending';
 
-    const ESTATUS_CANCELADA = 'Cancelada';
+    const CANCELED_STATUS = 'Canceled';
 
-    const ESTATUS_REVERSADA = 'Reversada';
+    const REVERSED_STATUS = 'Reversed';
 
     protected $fillable = [
         'uuid',
@@ -43,7 +43,7 @@ class Payment extends Model
     ];
 
     protected $attributes = [
-        'status' => self::ESTATUS_PENDIENTE,
+        'status' => self::PENDING_STATUS,
     ];
 
     protected $casts = [
@@ -54,11 +54,11 @@ class Payment extends Model
     {
         static::updated(function (Payment $payment) {
             if ($payment->wasChanged('status')) {
-                if ($payment->status == Payment::ESTATUS_PAGADA) {
+                if ($payment->status == Payment::PAID_STATUS) {
                     PaymentApproved::dispatch($payment);
                 }
 
-                if ($payment->status == Payment::ESTATUS_CANCELADA) {
+                if ($payment->status == Payment::CANCELED_STATUS) {
                     PaymentRejected::dispatch($payment);
                 }
             }
