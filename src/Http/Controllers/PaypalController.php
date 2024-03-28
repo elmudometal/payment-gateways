@@ -24,9 +24,9 @@ class PaypalController extends Controller
 
     public function init(Payment $payment)
     {
-        if ($payment->status == Payment::ESTATUS_PAGADA) {
+        if ($payment->status == Payment::PAID_STATUS) {
             return redirect()->route('paypal.successful', $payment->uuid);
-        } elseif ($payment->status == Payment::ESTATUS_CANCELADA) {
+        } elseif ($payment->status == Payment::CANCELED_STATUS) {
             return redirect()->route('paypal.rejected', $payment->uuid);
         }
 
@@ -77,10 +77,10 @@ class PaypalController extends Controller
             $payment->voucher = $data;
 
             if ($response->successful() && in_array($dataInfo['status'], ['COMPLETED', 'APPROVED'])) {
-                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::PAID_STATUS;
                 $payment->authorization_code = $dataInfo['purchase_units.0.payments.captures.0.id'];
             } else {
-                $payment->status = Payment::ESTATUS_CANCELADA;
+                $payment->status = Payment::CANCELED_STATUS;
             }
 
             $payment->save();
@@ -116,7 +116,7 @@ class PaypalController extends Controller
 
     public function successful(Payment $payment)
     {
-        if ($payment->status != Payment::ESTATUS_PAGADA) {
+        if ($payment->status != Payment::PAID_STATUS) {
             return redirect()->route('paypal.rejected');
         }
 
