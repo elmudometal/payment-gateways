@@ -60,7 +60,7 @@ class GetnetController extends Controller
             if ($response->status()->isApproved()) {
                 // Compra successful
                 $payment->voucher = $result;
-                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::PAID_STATUS;
                 $payment->authorization_code = $result['payment'][0]['authorization'];
                 $payment->save();
 
@@ -69,17 +69,17 @@ class GetnetController extends Controller
                 return redirect()->route('getnet.successful', $payment);
             } else {
                 $payment->voucher = $result;
-                $payment->status = Payment::ESTATUS_CANCELADA;
+                $payment->status = Payment::CANCELED_STATUS;
                 $payment->save();
 
                 return redirect()->route('getnet.rejected', $payment);
             }
         } else {
             $payment->voucher = $result;
-            $payment->status = Payment::ESTATUS_CANCELADA;
+            $payment->status = Payment::CANCELED_STATUS;
             $ruta = 'getnet.rejected';
             if ($response->status()->isApproved()) {
-                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::PAID_STATUS;
                 $payment->authorization_code = $result['payment'][0]['authorization'];
                 $ruta = 'getnet.successful';
             }
@@ -92,7 +92,7 @@ class GetnetController extends Controller
 
     public function successful(Payment $payment)
     {
-        if ($payment->status != Payment::ESTATUS_PAGADA) {
+        if ($payment->status != Payment::PAID_STATUS) {
             return redirect()->route('getnet.rejected');
         }
 

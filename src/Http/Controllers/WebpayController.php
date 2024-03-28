@@ -83,14 +83,14 @@ class WebpayController extends Controller
             if ($response->isApproved()) {
                 // Compra exitosa
                 $payment->voucher = json_decode(json_encode($response), true);
-                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::PAID_STATUS;
                 $payment->authorization_code = $response->authorizationCode;
                 $payment->save();
 
                 return redirect()->route('webpay.successful', $payment->uuid);
             } else {
                 $payment->voucher = json_decode(json_encode($response), true);
-                $payment->status = Payment::ESTATUS_CANCELADA;
+                $payment->status = Payment::CANCELED_STATUS;
                 $payment->save();
 
                 return redirect()->route('webpay.rejected', $payment->uuid);
@@ -98,11 +98,11 @@ class WebpayController extends Controller
         } else {
             $response = (new Transaction)->status($payment->token);
             $payment->voucher = json_decode(json_encode($response), true);
-            $payment->status = Payment::ESTATUS_CANCELADA;
+            $payment->status = Payment::CANCELED_STATUS;
             $payment->voucher = $payment->voucher + ['message' => $transactionStatus->getMessage()];
             $route = 'webpay.rejected';
             if ($response->isApproved()) {
-                $payment->status = Payment::ESTATUS_PAGADA;
+                $payment->status = Payment::PAID_STATUS;
                 $payment->authorization_code = $response->authorizationCode;
                 $route = 'webpay.successful';
             }

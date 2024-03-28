@@ -22,7 +22,7 @@ class PaymentFactory extends Factory
             'amount' => fake()->randomNumber(5),
             'model_id' => fake()->randomNumber(3),
             'model_type' => fake()->randomElement(['Paypal', 'webpay', 'Getnet']),
-            'status' => fake()->randomElement([Payment::ESTATUS_PENDIENTE, Payment::ESTATUS_CANCELADA]),
+            'status' => fake()->randomElement([Payment::PENDING_STATUS, Payment::CANCELED_STATUS]),
             'voucher' => fake()->sentence(),
             'comments' => fake()->paragraph(),
         ];
