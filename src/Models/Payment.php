@@ -34,6 +34,7 @@ class Payment extends Model
 
     protected $fillable = [
         'uuid',
+        'type',
         'token',
         'authorization_code',
         'status',
