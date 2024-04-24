@@ -91,6 +91,7 @@ class WebpayController extends Controller
             } else {
                 $payment->voucher = json_decode(json_encode($response), true);
                 $payment->status = Payment::CANCELED_STATUS;
+                $payment->voucher = $payment->voucher + ['message' => $this->responseCode[$payment->voucher['responseCode']] ?? ''];
                 $payment->save();
 
                 return redirect()->route('webpay.rejected', $payment->uuid);
