@@ -17,7 +17,10 @@ class PaypalController extends Controller
 
     public function __construct()
     {
-        $this->baseURL = config('payment-gateways.paypal.base_url');
+        $this->baseURL = 'https://api-m.sandbox.paypal.com';
+        if (app()->environment('production')) {
+            $this->baseURL = 'https://api-m.paypal.com';
+        }
         $this->clientId = config('payment-gateways.paypal.client_id');
         $this->clientSecret = config('payment-gateways.paypal.client_secret');
     }

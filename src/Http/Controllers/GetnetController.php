@@ -17,12 +17,21 @@ class GetnetController extends Controller
 
     public function __construct()
     {
-        $this->placetoPay = new PlacetoPay([
-            'login' => config('payment-gateways.getnet.login'),
-            'tranKey' => config('payment-gateways.getnet.tranKey'),
-            'baseUrl' => config('payment-gateways.getnet.baseUrl'),
-            'type' => 'rest',
-        ]);
+        if (app()->environment('production')) {
+            $this->placetoPay = new PlacetoPay([
+                'login' => config('payment-gateways.getnet.login'),
+                'tranKey' => config('payment-gateways.getnet.tranKey'),
+                'baseUrl' => 'https://checkout.getnet.cl',
+                'type' => 'rest',
+            ]);
+        } else {
+            $this->placetoPay = new PlacetoPay([
+                'login' => '7ffbb7bf1f7361b1200b2e8d74e1d76f',
+                'tranKey' => 'SnZP3D63n3I9dH9O',
+                'baseUrl' => 'https://checkout.test.getnet.cl',
+                'type' => 'rest',
+            ]);
+        }
     }
 
     public function init(Payment $payment)
