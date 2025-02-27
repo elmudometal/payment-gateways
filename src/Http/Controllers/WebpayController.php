@@ -150,13 +150,9 @@ class WebpayController extends Controller
         return $this->afterRejected($payment);
     }
 
-    public function beforeCommit(Payment $payment)
-    {
-    }
+    public function beforeCommit(Payment $payment) {}
 
-    public function afterCommit(Payment $payment)
-    {
-    }
+    public function afterCommit(Payment $payment) {}
 
     public function afterSuccessful(Payment $payment)
     {

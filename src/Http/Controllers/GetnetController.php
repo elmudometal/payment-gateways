@@ -147,13 +147,9 @@ class GetnetController extends Controller
         return $this->transaction;
     }
 
-    public function beforeCommit(Payment $payment)
-    {
-    }
+    public function beforeCommit(Payment $payment) {}
 
-    public function afterCommit(Payment $payment)
-    {
-    }
+    public function afterCommit(Payment $payment) {}
 
     public function afterSuccessful(Payment $payment)
     {
