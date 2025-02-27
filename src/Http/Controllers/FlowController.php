@@ -2,8 +2,6 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
-use Arca\PaymentGateways\Events\PaymentApproved;
-use Arca\PaymentGateways\Events\PaymentRejected;
 use Arca\PaymentGateways\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -41,8 +39,10 @@ class FlowController extends Controller
             'subject' => $payment->comments,
             'currency' => 'CLP',
             'amount' => $payment->amount,
-            'urlConfirmation' => route('payment-gateways.flow.confirm', $payment->uuid),
-            'urlReturn' => route('payment-gateways.flow.commit', $payment->uuid),
+            'email' => $payment->model?->email,
+            'paymentMethod' => 9,
+            'urlConfirmation' => route('flow.confirm', $payment->uuid),
+            'urlReturn' => route('flow.commit', $payment->uuid),
         ];
 
         try {
@@ -68,13 +68,6 @@ class FlowController extends Controller
             $payment->status = ($response['status'] == 2) ? Payment::PAID_STATUS : Payment::CANCELED_STATUS;
             $payment->save();
 
-            // Disparar eventos del paquete
-            if ($payment->status === Payment::PAID_STATUS) {
-                PaymentApproved::dispatch($payment);
-            } else {
-                PaymentRejected::dispatch($payment);
-            }
-
             return response()->json(['message' => 'success']);
         } catch (\Exception $e) {
             Log::error('Flow confirm error: '.$e->getMessage());
@@ -85,6 +78,15 @@ class FlowController extends Controller
 
     public function commit(Payment $payment, Request $request)
     {
+        if (empty($payment->voucher) || $payment->status == Payment::PENDING_STATUS) {
+            $params = ['token' => $request->token];
+            $response = $this->send('payment/getStatus', $params);
+
+            $payment->voucher = $response;
+            $payment->status = ($response['status'] == 2) ? Payment::PAID_STATUS : Payment::CANCELED_STATUS;
+            $payment->save();
+        }
+
         if ($payment->status === Payment::PAID_STATUS) {
             return redirect()->route('flow.successful', $payment->uuid);
         }
