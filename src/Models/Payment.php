@@ -2,12 +2,13 @@
 
 namespace Arca\PaymentGateways\Models;
 
+use Arca\PaymentGateways\Database\Factories\PaymentFactory;
 use Arca\PaymentGateways\Events\PaymentApproved;
 use Arca\PaymentGateways\Events\PaymentRejected;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Support\Str;
 
 /**
  * Arca\PaymentGateways\Models\Payment
@@ -22,7 +23,7 @@ use Illuminate\Support\Str;
  */
 class Payment extends Model
 {
-    use HasFactory;
+    use HasFactory, HasUuids, SoftDeletes;
 
     const PAID_STATUS = 'Paid';
 
@@ -64,15 +65,21 @@ class Payment extends Model
                 }
             }
         });
+
+        static::created(function (Payment $payment) {
+            if ($payment->status == Payment::PAID_STATUS) {
+                PaymentApproved::dispatch($payment);
+            }
+
+            if ($payment->status == Payment::CANCELED_STATUS) {
+                PaymentRejected::dispatch($payment);
+            }
+        });
     }
 
-    protected static function newFactory()
+    protected static function newFactory(): PaymentFactory
     {
-        $package = Str::before(get_called_class(), 'Models\\');
-        $modelName = Str::after(get_called_class(), 'Models\\');
-        $path = $package.'Database\\Factories\\'.$modelName.'Factory';
-
-        return $path::new();
+        return PaymentFactory::new();
     }
 
     public function model(): MorphTo
