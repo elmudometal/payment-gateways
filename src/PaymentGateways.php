@@ -2,6 +2,4 @@
 
 namespace Arca\PaymentGateways;
 
-class PaymentGateways
-{
-}
+class PaymentGateways {}
