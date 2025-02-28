@@ -5,7 +5,7 @@
             <p><em>Ha ocurrido un error durante su Pago</em></p>
             <h4>Datos del Pago:</h4>
             <p>Número de orden: {{ $payment->id }}</p>
-            <h4 class="mb-4 text-center"><p><strong>{{ config('payment-gateways.getnet.commerce_name') }}</strong></p></h4>
+            <h4 class="mb-4 text-center"><p><strong>{{ config('payment-gateways.paypal.commerce_name') }}</strong></p></h4>
             <h2>Error:</h2>
             <p>
                 {{ $error }}
