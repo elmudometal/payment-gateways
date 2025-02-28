@@ -23,21 +23,6 @@ You can install the package via composer:
 composer require arca/payment-gateways
 ```
 
-You can install the package via git:
-add in composer.json section require
-```bash
-"arca/payment-gateways": "dev-main",
-```
-And repositories
-```bash
-"repositories": [
-  {
-    "type": "composer",
-    "url": "https://repositorios.arca.cl"
-  }
-]
-```
-
 You can publish and run the migrations with:
 
 ```bash
@@ -57,9 +42,8 @@ This is the contents of the published config file:
 return [
     'getnet' => [
         'commerce_name' => 'Getnet Nombre de Comercio',
-        'login' => env('GETNET_LOGIN', '7ffbb7bf1f7361b1200b2e8d74e1d76f'),
-        'tranKey' => env('GETNET_TRAN_KEY', 'SnZP3D63n3I9dH9O'),
-        'baseUrl' => env('GETNET_BASE_URL', 'https://checkout.test.getnet.cl'),
+        'login' => env('GETNET_LOGIN', ''),
+        'tranKey' => env('GETNET_TRAN_KEY', ''),
         'controller' => \Arca\PaymentGateways\Http\Controllers\GetnetController::class,
     ],
     'webpay' => [
@@ -70,10 +54,33 @@ return [
     ],
     'paypal' => [
         'commerce_name' => 'Paypal Nombre de Comercio',
-        'base_url' => env('PAYPAL_CLIENT_URL', 'https://api-m.sandbox.paypal.com'),
         'client_id' => env('PAYPAL_CLIENT_ID', ''),
         'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
         'controller' => \Arca\PaymentGateways\Http\Controllers\PaypalController::class,
+    ],
+    'flow' => [
+        'commerce_name' => 'Flow Nombre de Comercio',
+        'api_key' => env('FLOW_API_KEY'),
+        'secret_key' => env('FLOW_SECRET'),        
+        'controller' => \Arca\PaymentGateways\Http\Controllers\FlowController::class,
+        'status' => [
+            '1' => 'pendiente de pago',
+            '2' => 'pagada',
+            '3' => 'rechazada',
+            '4' => 'anulada',
+            '-1' => 'Tarjeta inválida',
+            '-11' => 'Excede límite de reintentos de rechazos',
+            '-2' => 'Error de conexión',
+            '-3' => 'Excede monto máximo',
+            '-4' => 'Fecha de expiración inválida',
+            '-5' => 'Problema en autenticación',
+            '-6' => 'Rechazo general',
+            '-7' => 'Tarjeta bloqueada',
+            '-8' => 'Tarjeta vencida',
+            '-9' => 'Transacción no soportada',
+            '-10' => 'Problema en la transacción',
+            '999' => 'Error desconocido',
+        ],
     ],
 ];
 ```

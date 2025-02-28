@@ -17,12 +17,12 @@ class FlowController extends Controller
 
     public function __construct()
     {
-        $this->apiUrl = config('payment-gateways.flow.sandbox_url');
+        $this->apiUrl = 'https://sandbox.flow.cl/api';
         $this->apiKey = config('payment-gateways.flow.api_key');
         $this->secretKey = config('payment-gateways.flow.secret_key');
 
         if (app()->environment('production')) {
-            $this->apiUrl = config('payment-gateways.flow.production_url');
+            $this->apiUrl = 'https://www.flow.cl/api';
         }
     }
 
