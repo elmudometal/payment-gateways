@@ -39,7 +39,7 @@ class FlowController extends Controller
             'subject' => $payment->comments,
             'currency' => 'CLP',
             'amount' => $payment->amount,
-            'email' => $payment->model?->email,
+            'email' => $payment->model?->email, // @phpstan-ignore-line
             'paymentMethod' => 9,
             'urlConfirmation' => route('flow.confirm', $payment->uuid),
             'urlReturn' => route('flow.commit', $payment->uuid),
