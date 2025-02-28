@@ -7,10 +7,10 @@
             <p>Número de orden: {{ $payment->id }}</p>
             <p>Número de pago Flow: {{ $payment->voucher['flowOrder'] }}</p>
             <p>{{ config('payment-gateways.flow.commerce_name') }}</p>
-            <p>Estado del pago: {{ $estatusPago[$pago->comprobante['status']] }}</p>
+            <p>Estado del pago: {{ config('payment-gateways.flow.status')[$payment->voucher['status'] ?? 999] }}</p>
             <h2>Error:</h2>
             <p>
-                {{ $payment->voucher['message'] }}
+                {{ $payment->voucher['message'] ?? $error }}
             </p>
             <h2>Las posibles causas de este rechazo son: </h2>
             <ul>

@@ -24,8 +24,6 @@ return [
         'commerce_name' => 'Flow Nombre de Comercio',
         'api_key' => env('FLOW_API_KEY'),
         'secret_key' => env('FLOW_SECRET'),
-        'sandbox_url' => 'https://sandbox.flow.cl/api',
-        'production_url' => 'https://www.flow.cl/api',
         'controller' => \Arca\PaymentGateways\Http\Controllers\FlowController::class,
         'status' => [
             '1' => 'pendiente de pago',
