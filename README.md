@@ -11,6 +11,7 @@ Payment gateways added:
 - Webpay
 - Getnet
 - PayPal
+- Flow
 
 ## Support us
 If you want another payment gateway, write without problem and I will try to implement it.
