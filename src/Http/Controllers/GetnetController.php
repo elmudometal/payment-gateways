@@ -99,6 +99,32 @@ class GetnetController extends Controller
         }
     }
 
+    public function notification(Request $request)
+    {
+        $payment = Payment::findOrFail($request->reference);
+        $this->beforeCommit($payment);
+        $response = $this->placetoPay->query((int) $payment->token);
+        $result = $response->toArray();
+
+        if ($response->isSuccessful()) {
+
+            /** Verificamos resultado de transacción */
+            if ($response->status()->isApproved()) {
+                // Compra successful
+                $payment->voucher = $result;
+                $payment->status = Payment::PAID_STATUS;
+                $payment->authorization_code = $result['payment'][0]['authorization'];
+                $payment->save();
+
+                $this->afterCommit($payment);
+            } else {
+                $payment->voucher = $result;
+                $payment->status = Payment::CANCELED_STATUS;
+                $payment->save();
+            }
+        }
+    }
+
     public function successful(Payment $payment)
     {
         if ($payment->status != Payment::PAID_STATUS) {
