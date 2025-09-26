@@ -9,5 +9,5 @@ Route::middleware(SubstituteBindings::class)->group(function () {
     Route::get('getnet/successful/{payment:uuid}', [$controller, 'successful'])->name('getnet.successful');
     Route::get('getnet/rejected/{payment:uuid}', [$controller, 'rejected'])->name('getnet.rejected');
     Route::match(['get', 'post'], 'getnet/commit/{payment:uuid}', [$controller, 'commit'])->name('getnet.commit');
-    Route::post('getnet/notification', [$controller, 'notification'])->name('getnet.notification');
+    Route::match(['get', 'post'], 'getnet/notification', [$controller, 'notification'])->name('getnet.notification');
 });
