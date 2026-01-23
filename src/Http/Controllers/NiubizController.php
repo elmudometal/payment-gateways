@@ -106,7 +106,7 @@ class NiubizController extends Controller
                 'authorizeUrl' => route('niubiz.authorize', $payment->uuid),
             ]);
         } catch (\Exception $e) {
-            Log::error('Niubiz init error: ' . $e->getMessage());
+            Log::error('Niubiz init error: '.$e->getMessage());
 
             return redirect()->route('niubiz.rejected', $payment->uuid);
         }
@@ -144,7 +144,7 @@ class NiubizController extends Controller
 
             return redirect()->route('niubiz.rejected', $payment->uuid);
         } catch (\Exception $e) {
-            Log::error('Niubiz authorize error: ' . $e->getMessage());
+            Log::error('Niubiz authorize error: '.$e->getMessage());
 
             $payment->status = Payment::CANCELED_STATUS;
             $payment->voucher = ['error' => $e->getMessage()];
@@ -171,13 +171,13 @@ class NiubizController extends Controller
      */
     protected function getAccessToken(): string
     {
-        $url = $this->apiUrl . '/api.security/v1/security';
+        $url = $this->apiUrl.'/api.security/v1/security';
 
         $response = Http::withBasicAuth($this->user, $this->password)
             ->get($url);
 
         if (! $response->successful()) {
-            throw new \Exception('Niubiz security API error: ' . $response->body());
+            throw new \Exception('Niubiz security API error: '.$response->body());
         }
 
         return $response->body();
@@ -188,7 +188,7 @@ class NiubizController extends Controller
      */
     protected function getSessionToken(string $accessToken, float $amount): string
     {
-        $url = $this->apiUrl . '/api.ecommerce/v2/ecommerce/token/session/' . $this->merchantId;
+        $url = $this->apiUrl.'/api.ecommerce/v2/ecommerce/token/session/'.$this->merchantId;
 
         $response = Http::withToken($accessToken)
             ->post($url, [
@@ -201,7 +201,7 @@ class NiubizController extends Controller
             ]);
 
         if (! $response->successful()) {
-            throw new \Exception('Niubiz session token error: ' . $response->body());
+            throw new \Exception('Niubiz session token error: '.$response->body());
         }
 
         $data = $response->json();
@@ -214,7 +214,7 @@ class NiubizController extends Controller
      */
     protected function authorizeTransaction(string $accessToken, string $transactionToken, Payment $payment): array
     {
-        $url = $this->apiUrl . '/api.authorization/v3/authorization/ecommerce/' . $this->merchantId;
+        $url = $this->apiUrl.'/api.authorization/v3/authorization/ecommerce/'.$this->merchantId;
 
         $response = Http::withToken($accessToken)
             ->post($url, [
@@ -231,7 +231,7 @@ class NiubizController extends Controller
 
         if (! $response->successful()) {
             $errorData = $response->json();
-            throw new \Exception($errorData['errorMessage'] ?? 'Authorization failed: ' . $response->body());
+            throw new \Exception($errorData['errorMessage'] ?? 'Authorization failed: '.$response->body());
         }
 
         return $response->json();
