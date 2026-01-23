@@ -12,6 +12,7 @@ Payment gateways added:
 - Getnet
 - PayPal
 - Flow
+- Niubiz
 
 ## Support us
 If you want another payment gateway, write without problem and I will try to implement it.
@@ -82,6 +83,13 @@ return [
             '-10' => 'Problema en la transacción',
             '999' => 'Error desconocido',
         ],
+    ],
+    'niubiz' => [
+        'commerce_name' => 'Niubiz Nombre de Comercio',
+        'merchant_id' => env('NIUBIZ_MERCHANT_ID', ''),
+        'user' => env('NIUBIZ_USER', ''),
+        'password' => env('NIUBIZ_PASSWORD', ''),
+        'controller' => \Arca\PaymentGateways\Http\Controllers\NiubizController::class,
     ],
 ];
 ```

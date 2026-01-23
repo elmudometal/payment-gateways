@@ -19,7 +19,7 @@ class PaymentGatewaysServiceProvider extends PackageServiceProvider
             ->name('payment-gateways')
             ->hasConfigFile()
             ->hasViews()
-            ->hasRoutes(['getnet', 'webpay', 'paypal', 'flow'])
+            ->hasRoutes(['getnet', 'webpay', 'paypal', 'flow', 'niubiz'])
             ->hasMigrations(['create_payment_gateways_table'])
             ->runsMigrations(true)
             ->hasAssets()
