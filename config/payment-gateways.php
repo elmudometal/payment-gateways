@@ -44,4 +44,11 @@ return [
             '999' => 'Error desconocido',
         ],
     ],
+    'niubiz' => [
+        'commerce_name' => 'Niubiz Nombre de Comercio',
+        'merchant_id' => env('NIUBIZ_MERCHANT_ID', ''),
+        'user' => env('NIUBIZ_USER', ''),
+        'password' => env('NIUBIZ_PASSWORD', ''),
+        'controller' => \Arca\PaymentGateways\Http\Controllers\NiubizController::class,
+    ],
 ];
