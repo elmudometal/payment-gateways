@@ -1,30 +1,36 @@
 <?php
 
+use Arca\PaymentGateways\Http\Controllers\FlowController;
+use Arca\PaymentGateways\Http\Controllers\GetnetController;
+use Arca\PaymentGateways\Http\Controllers\NiubizController;
+use Arca\PaymentGateways\Http\Controllers\PaypalController;
+use Arca\PaymentGateways\Http\Controllers\WebpayController;
+
 // config for Arca/PaymentGateways
 return [
     'getnet' => [
         'commerce_name' => 'Getnet Nombre de Comercio',
         'login' => env('GETNET_LOGIN', ''),
         'tranKey' => env('GETNET_TRAN_KEY', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\GetnetController::class,
+        'controller' => GetnetController::class,
     ],
     'webpay' => [
         'commerce_name' => 'Webpay Nombre de Comercio',
         'commerce_code' => env('WEBPAY_CODE', ''),
         'commerce_api_key' => env('WEBPAY_API_KEY', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\WebpayController::class,
+        'controller' => WebpayController::class,
     ],
     'paypal' => [
         'commerce_name' => 'Paypal Nombre de Comercio',
         'client_id' => env('PAYPAL_CLIENT_ID', ''),
         'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\PaypalController::class,
+        'controller' => PaypalController::class,
     ],
     'flow' => [
         'commerce_name' => 'Flow Nombre de Comercio',
         'api_key' => env('FLOW_API_KEY', ''),
         'secret_key' => env('FLOW_SECRET', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\FlowController::class,
+        'controller' => FlowController::class,
         'status' => [
             '1' => 'pendiente de pago',
             '2' => 'pagada',
@@ -49,6 +55,6 @@ return [
         'merchant_id' => env('NIUBIZ_MERCHANT_ID', ''),
         'user' => env('NIUBIZ_USER', ''),
         'password' => env('NIUBIZ_PASSWORD', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\NiubizController::class,
+        'controller' => NiubizController::class,
     ],
 ];
