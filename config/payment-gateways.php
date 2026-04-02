@@ -22,8 +22,8 @@ return [
     ],
     'flow' => [
         'commerce_name' => 'Flow Nombre de Comercio',
-        'api_key' => env('FLOW_API_KEY'),
-        'secret_key' => env('FLOW_SECRET'),
+        'api_key' => env('FLOW_API_KEY', ''),
+        'secret_key' => env('FLOW_SECRET', ''),
         'controller' => \Arca\PaymentGateways\Http\Controllers\FlowController::class,
         'status' => [
             '1' => 'pendiente de pago',

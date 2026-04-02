@@ -103,7 +103,7 @@ class NiubizController extends Controller
                 'sessionToken' => $sessionToken,
                 'merchantId' => $this->merchantId,
                 'jsUrl' => $this->jsUrl,
-                'authorizeUrl' => route('niubiz.authorize', $payment->uuid),
+                'authorizeUrl' => route('niubiz.authorized', $payment->uuid),
             ]);
         } catch (\Exception $e) {
             Log::error('Niubiz init error: '.$e->getMessage());
@@ -112,7 +112,7 @@ class NiubizController extends Controller
         }
     }
 
-    public function authorize(Payment $payment, Request $request)
+    public function authorized(Payment $payment, Request $request)
     {
         try {
             $transactionToken = $request->input('transactionToken');
