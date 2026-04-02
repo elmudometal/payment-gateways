@@ -4,6 +4,7 @@ namespace Arca\PaymentGateways\Http\Controllers;
 
 use Arca\PaymentGateways\Models\Payment;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -18,8 +19,8 @@ class FlowController extends Controller
     public function __construct()
     {
         $this->apiUrl = 'https://sandbox.flow.cl/api';
-        $this->apiKey = config('payment-gateways.flow.api_key');
-        $this->secretKey = config('payment-gateways.flow.secret_key');
+        $this->apiKey = Config::string('payment-gateways.flow.api_key');
+        $this->secretKey = Config::string('payment-gateways.flow.secret_key');
 
         if (app()->environment('production')) {
             $this->apiUrl = 'https://www.flow.cl/api';
