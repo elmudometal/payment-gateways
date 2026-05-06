@@ -1,60 +1,83 @@
 <?php
 
-use Arca\PaymentGateways\Http\Controllers\FlowController;
-use Arca\PaymentGateways\Http\Controllers\GetnetController;
-use Arca\PaymentGateways\Http\Controllers\NiubizController;
-use Arca\PaymentGateways\Http\Controllers\PaypalController;
-use Arca\PaymentGateways\Http\Controllers\WebpayController;
-
-// config for Arca/PaymentGateways
 return [
-    'getnet' => [
-        'commerce_name' => 'Getnet Nombre de Comercio',
-        'login' => env('GETNET_LOGIN', ''),
-        'tranKey' => env('GETNET_TRAN_KEY', ''),
-        'controller' => GetnetController::class,
-    ],
-    'webpay' => [
-        'commerce_name' => 'Webpay Nombre de Comercio',
-        'commerce_code' => env('WEBPAY_CODE', ''),
-        'commerce_api_key' => env('WEBPAY_API_KEY', ''),
-        'controller' => WebpayController::class,
-    ],
-    'paypal' => [
-        'commerce_name' => 'Paypal Nombre de Comercio',
-        'client_id' => env('PAYPAL_CLIENT_ID', ''),
-        'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
-        'controller' => PaypalController::class,
-    ],
-    'flow' => [
-        'commerce_name' => 'Flow Nombre de Comercio',
-        'api_key' => env('FLOW_API_KEY', ''),
-        'secret_key' => env('FLOW_SECRET', ''),
-        'controller' => FlowController::class,
-        'status' => [
-            '1' => 'pendiente de pago',
-            '2' => 'pagada',
-            '3' => 'rechazada',
-            '4' => 'anulada',
-            '-1' => 'Tarjeta inválida',
-            '-11' => 'Excede límite de reintentos de rechazos',
-            '-2' => 'Error de conexión',
-            '-3' => 'Excede monto máximo',
-            '-4' => 'Fecha de expiración inválida',
-            '-5' => 'Problema en autenticación',
-            '-6' => 'Rechazo general',
-            '-7' => 'Tarjeta bloqueada',
-            '-8' => 'Tarjeta vencida',
-            '-9' => 'Transacción no soportada',
-            '-10' => 'Problema en la transacción',
-            '999' => 'Error desconocido',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Payment Gateway
+    |--------------------------------------------------------------------------
+    */
+    'default' => env('PAYMENT_GATEWAY', 'webpay'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Payment Gateways
+    |--------------------------------------------------------------------------
+    */
+    'gateways' => [
+        'webpay' => [
+            'driver' => 'webpay',
+            'environment' => env('WEBPAY_ENV', 'sandbox'),
+            'commerce_code' => env('WEBPAY_CODE', ''),
+            'api_key' => env('WEBPAY_API_KEY', ''),
+        ],
+
+        'getnet' => [
+            'driver' => 'getnet',
+            'environment' => env('GETNET_ENV', 'sandbox'),
+            'login' => env('GETNET_LOGIN', ''),
+            'tran_key' => env('GETNET_TRAN_KEY', ''),
+        ],
+
+        'paypal' => [
+            'driver' => 'paypal',
+            'environment' => env('PAYPAL_ENV', 'sandbox'),
+            'client_id' => env('PAYPAL_CLIENT_ID', ''),
+            'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
+            'currency' => env('PAYPAL_CURRENCY', 'USD'),
+        ],
+
+        'flow' => [
+            'driver' => 'flow',
+            'environment' => env('FLOW_ENV', 'sandbox'),
+            'api_key' => env('FLOW_API_KEY', ''),
+            'secret_key' => env('FLOW_SECRET', ''),
+        ],
+
+        'niubiz' => [
+            'driver' => 'niubiz',
+            'environment' => env('NIUBIZ_ENV', 'sandbox'),
+            'merchant_id' => env('NIUBIZ_MERCHANT_ID', ''),
+            'user' => env('NIUBIZ_USER', ''),
+            'password' => env('NIUBIZ_PASSWORD', ''),
+            'currency' => env('NIUBIZ_CURRENCY', 'PEN'),
         ],
     ],
-    'niubiz' => [
-        'commerce_name' => 'Niubiz Nombre de Comercio',
-        'merchant_id' => env('NIUBIZ_MERCHANT_ID', ''),
-        'user' => env('NIUBIZ_USER', ''),
-        'password' => env('NIUBIZ_PASSWORD', ''),
-        'controller' => NiubizController::class,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Webhook Configuration
+    |--------------------------------------------------------------------------
+    */
+    'webhook' => [
+        'route_prefix' => 'payments/webhooks',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Route Configuration
+    |--------------------------------------------------------------------------
+    */
+    'routes' => [
+        'prefix' => 'payments',
+        'middleware' => ['web'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Payment Model
+    |--------------------------------------------------------------------------
+    */
+    'model' => Arca\PaymentGateways\Models\Payment::class,
+
 ];

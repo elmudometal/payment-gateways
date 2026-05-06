@@ -2,6 +2,8 @@
 
 namespace Arca\PaymentGateways\Database\Factories;
 
+use Arca\PaymentGateways\Enums\Currency;
+use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Models\Payment;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -12,19 +14,36 @@ class PaymentFactory extends Factory
 {
     protected $model = Payment::class;
 
-    /**
-     * Define the model's default state.
-     */
     public function definition(): array
     {
         return [
-            'uuid' => fake()->unique()->uuid,
-            'amount' => fake()->randomNumber(5),
-            'model_id' => fake()->randomNumber(3),
-            'model_type' => fake()->randomElement(['Paypal', 'webpay', 'Getnet']),
-            'status' => fake()->randomElement([Payment::PENDING_STATUS, Payment::CANCELED_STATUS]),
-            'voucher' => fake()->sentence(),
-            'comments' => fake()->paragraph(),
+            'uuid' => fake()->unique()->uuid(),
+            'gateway' => fake()->randomElement(['webpay', 'getnet', 'paypal', 'flow', 'niubiz']),
+            'status' => PaymentStatus::Pending,
+            'amount' => fake()->numberBetween(1000, 500000),
+            'currency' => Currency::CLP,
+            'description' => fake()->sentence(),
         ];
+    }
+
+    public function paid(): static
+    {
+        return $this->state(fn () => [
+            'status' => PaymentStatus::Paid,
+            'authorization_code' => fake()->uuid(),
+            'paid_at' => now(),
+        ]);
+    }
+
+    public function failed(): static
+    {
+        return $this->state(fn () => [
+            'status' => PaymentStatus::Failed,
+        ]);
+    }
+
+    public function gateway(string $gateway): static
+    {
+        return $this->state(fn () => ['gateway' => $gateway]);
     }
 }

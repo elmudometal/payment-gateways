@@ -2,7 +2,8 @@
 
 namespace Arca\PaymentGateways;
 
-use Arca\PaymentGateways\Commands\PaymentGatewaysCommand;
+use Arca\PaymentGateways\Services\PaymentService;
+use Arca\PaymentGateways\Support\PaymentManager;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -10,19 +11,23 @@ class PaymentGatewaysServiceProvider extends PackageServiceProvider
 {
     public function configurePackage(Package $package): void
     {
-        /*
-         * This class is a Package Service Provider
-         *
-         * More info: https://github.com/spatie/laravel-package-tools
-         */
         $package
             ->name('payment-gateways')
             ->hasConfigFile()
             ->hasViews()
-            ->hasRoutes(['getnet', 'webpay', 'paypal', 'flow', 'niubiz'])
-            ->hasMigrations(['create_payment_gateways_table'])
-            ->runsMigrations(true)
-            ->hasAssets()
-            ->hasCommand(PaymentGatewaysCommand::class);
+            ->hasRoutes(['payments'])
+            ->hasMigrations(['create_payments_table'])
+            ->runsMigrations(true);
+    }
+
+    public function packageRegistered(): void
+    {
+        $this->app->singleton(PaymentManager::class, function ($app) {
+            return new PaymentManager($app);
+        });
+
+        $this->app->singleton(PaymentService::class, function ($app) {
+            return new PaymentService($app->make(PaymentManager::class));
+        });
     }
 }
