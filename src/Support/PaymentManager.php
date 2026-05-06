@@ -5,6 +5,7 @@ namespace Arca\PaymentGateways\Support;
 use Arca\PaymentGateways\Contracts\PaymentGateway;
 use Arca\PaymentGateways\Drivers\Flow\FlowDriver;
 use Arca\PaymentGateways\Drivers\Getnet\GetnetDriver;
+use Arca\PaymentGateways\Drivers\MercadoPago\MercadoPagoDriver;
 use Arca\PaymentGateways\Drivers\Niubiz\NiubizDriver;
 use Arca\PaymentGateways\Drivers\Paypal\PaypalDriver;
 use Arca\PaymentGateways\Drivers\Webpay\WebpayDriver;
@@ -55,6 +56,13 @@ class PaymentManager extends Manager
     {
         return new NiubizDriver(
             $this->gatewayConfig('niubiz'),
+        );
+    }
+
+    public function createMercadopagoDriver(): MercadoPagoDriver
+    {
+        return new MercadoPagoDriver(
+            $this->gatewayConfig('mercadopago'),
         );
     }
 

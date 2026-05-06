@@ -52,6 +52,12 @@ return [
             'password' => env('NIUBIZ_PASSWORD', ''),
             'currency' => env('NIUBIZ_CURRENCY', 'PEN'),
         ],
+
+        'mercadopago' => [
+            'driver' => 'mercadopago',
+            'environment' => env('MERCADOPAGO_ENV', 'sandbox'),
+            'access_token' => env('MERCADOPAGO_ACCESS_TOKEN', ''),
+        ],
     ],
 
     /*

@@ -18,7 +18,7 @@ class PaymentFactory extends Factory
     {
         return [
             'uuid' => fake()->unique()->uuid(),
-            'gateway' => fake()->randomElement(['webpay', 'getnet', 'paypal', 'flow', 'niubiz']),
+            'gateway' => fake()->randomElement(['webpay', 'getnet', 'paypal', 'flow', 'niubiz', 'mercadopago']),
             'status' => PaymentStatus::Pending,
             'amount' => fake()->numberBetween(1000, 500000),
             'currency' => Currency::CLP,

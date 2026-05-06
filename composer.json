@@ -9,7 +9,8 @@
         "webpay",
         "getnet",
         "flow",
-        "niubiz"
+        "niubiz",
+        "mercadopago"
     ],
     "homepage": "https://github.com/elmudometal/payment-gateways",
     "license": "MIT",

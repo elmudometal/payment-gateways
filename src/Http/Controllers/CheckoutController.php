@@ -2,6 +2,7 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
+use Arca\PaymentGateways\Drivers\MercadoPago\MercadoPagoDriver;
 use Arca\PaymentGateways\Drivers\Niubiz\NiubizDriver;
 use Arca\PaymentGateways\Drivers\Paypal\PaypalDriver;
 use Arca\PaymentGateways\Drivers\Webpay\WebpayDriver;
@@ -44,6 +45,7 @@ class CheckoutController extends Controller
                 $payment,
             ),
             $driver instanceof PaypalDriver && $payment->external_id => $driver->capture($payment),
+            $driver instanceof MercadoPagoDriver => $driver->processReturn($request, $payment),
             default => $driver->query($payment),
         };
 

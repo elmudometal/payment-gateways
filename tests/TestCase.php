@@ -72,5 +72,10 @@ class TestCase extends Orchestra
             'password' => 'test-pass',
             'currency' => 'PEN',
         ]);
+        $app['config']->set('payment-gateways.gateways.mercadopago', [
+            'driver' => 'mercadopago',
+            'environment' => 'sandbox',
+            'access_token' => 'TEST-fake-access-token',
+        ]);
     }
 }
