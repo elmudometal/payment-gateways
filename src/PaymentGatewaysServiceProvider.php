@@ -3,6 +3,7 @@
 namespace Arca\PaymentGateways;
 
 use Arca\PaymentGateways\Console\Commands\MakePaymentDriverCommand;
+use Arca\PaymentGateways\Console\Commands\MigrateFromV1Command;
 use Arca\PaymentGateways\Services\PaymentService;
 use Arca\PaymentGateways\Support\PaymentManager;
 use Spatie\LaravelPackageTools\Package;
@@ -19,7 +20,10 @@ class PaymentGatewaysServiceProvider extends PackageServiceProvider
             ->hasRoutes(['payments'])
             ->hasMigrations(['create_payments_table'])
             ->runsMigrations(true)
-            ->hasCommand(MakePaymentDriverCommand::class);
+            ->hasCommands([
+                MakePaymentDriverCommand::class,
+                MigrateFromV1Command::class,
+            ]);
     }
 
     public function packageRegistered(): void

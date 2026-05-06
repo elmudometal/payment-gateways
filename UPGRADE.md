@@ -61,49 +61,37 @@ Key changes:
 - Explicit `environment` key replaces auto-detection via `app()->environment()`
 - `commerce_name` removed (not used by APIs)
 
-## Step 3: Run the migration
+## Step 3: Run the automatic migration
 
-The `payments` table schema has changed:
+v2 includes an artisan command that handles the full migration automatically:
+
+```bash
+# Preview what will change (no modifications)
+php artisan payment-gateways:migrate-from-v1 --dry-run
+
+# Run the migration (creates a backup table first)
+php artisan payment-gateways:migrate-from-v1
+
+# Run without backup
+php artisan payment-gateways:migrate-from-v1 --no-backup
+```
+
+The command handles:
 
 | v1 Column   | v2 Column          | Notes                          |
 |-------------|--------------------|---------------------------------|
-| `type`      | `gateway`          | Renamed                         |
+| `type`      | `gateway`          | Renamed + normalized to lowercase |
 | `voucher`   | `metadata`         | Renamed, still JSON             |
 | `comments`  | `description`      | Renamed                         |
 | `model_*`   | `payable_*`        | Renamed morph columns           |
-| `status`    | `status`           | Now uses `PaymentStatus` enum values (`pending`, `paid`, `failed`) |
+| `status`    | `status`           | `Paid`→`paid`, `Pending`→`pending`, `Canceled`→`failed`, `Reversed`→`reversed` |
 | `amount`    | `amount`           | Now `bigInteger` (was `integer`)|
+| `token`     | `external_id`      | Renamed + indexed               |
 | —           | `currency`         | New column (default: `CLP`)     |
-| —           | `external_id`      | New column (replaces `token`)   |
-| —           | `paid_at`          | New timestamp                   |
+| —           | `paid_at`          | Backfilled from `updated_at` for paid records |
 | —           | `expires_at`       | New timestamp                   |
-| `token`     | —                  | Removed (use `external_id`)     |
 
-Create a migration to update existing data:
-
-```php
-Schema::table('payments', function (Blueprint $table) {
-    $table->renameColumn('type', 'gateway');
-    $table->renameColumn('voucher', 'metadata');
-    $table->renameColumn('comments', 'description');
-    $table->renameColumn('model_id', 'payable_id');
-    $table->renameColumn('model_type', 'payable_type');
-    $table->renameColumn('token', 'external_id');
-    $table->string('currency', 3)->default('CLP')->after('amount');
-    $table->timestamp('paid_at')->nullable()->after('metadata');
-    $table->timestamp('expires_at')->nullable()->after('paid_at');
-});
-
-// Update status values
-DB::table('payments')->where('status', 'Paid')->update(['status' => 'paid']);
-DB::table('payments')->where('status', 'Pending')->update(['status' => 'pending']);
-DB::table('payments')->where('status', 'Canceled')->update(['status' => 'failed']);
-DB::table('payments')->where('status', 'Reversed')->update(['status' => 'reversed']);
-
-// Backfill paid_at for existing paid payments
-DB::table('payments')->where('status', 'paid')->whereNull('paid_at')
-    ->update(['paid_at' => DB::raw('updated_at')]);
-```
+A backup table `payments_v1_backup` is created automatically unless `--no-backup` is passed.
 
 ## Step 4: Update model references
 
@@ -224,6 +212,51 @@ Publish and customize them:
 php artisan vendor:publish --tag="payment-gateways-views" --force
 ```
 
+## Compatibility helpers (optional)
+
+v2 ships with two optional helpers to ease the transition:
+
+### Legacy route redirects
+
+If your frontend or external systems still link to v1 route names (`webpay.init`, `flow.commit`, etc.), register redirects in your `AppServiceProvider`:
+
+```php
+use Arca\PaymentGateways\Support\Legacy\LegacyRouteRedirector;
+
+public function boot(): void
+{
+    LegacyRouteRedirector::register();
+}
+```
+
+This registers 301/307 redirects from all v1 routes to their v2 equivalents. Remove once all clients are updated.
+
+### Legacy controller adapter
+
+If you had custom controllers extending v1 gateway controllers (e.g. `MyWebpayController extends WebpayController`), you can use `LegacyControllerAdapter` as a bridge:
+
+```php
+use Arca\PaymentGateways\Support\Legacy\LegacyControllerAdapter;
+
+class MyWebpayController extends LegacyControllerAdapter
+{
+    protected string $gateway = 'webpay';
+
+    public function afterSuccessful(Payment $payment)
+    {
+        // Your custom success logic
+        return view('my-success', compact('payment'));
+    }
+
+    public function afterRejected(Payment $payment, string $error = '')
+    {
+        return view('my-error', compact('payment', 'error'));
+    }
+}
+```
+
+Register your own routes pointing to this controller. Under the hood, it delegates to the v2 driver system. This is a transitional tool — migrate to events or driver extension when possible.
+
 ## New features in v2
 
 - **`PaymentGateways::extend()`** — Add custom gateways without forking
@@ -231,5 +264,7 @@ php artisan vendor:publish --tag="payment-gateways-views" --force
 - **`PaymentService`** — Orchestration layer with automatic event dispatching
 - **Value Objects** — `Money`, `ChargeIntent`, `ChargeResult`, `RefundResult`
 - **Webhook support** — Unified `POST /payments/webhooks/{gateway}` endpoint
-- **Refunds** — PayPal supports refunds via `SupportsRefunds` interface
+- **Refunds** — PayPal and MercadoPago support refunds via `SupportsRefunds` interface
+- **MercadoPago** — New driver for Checkout Pro API
 - **`make:payment-driver`** — Scaffold new drivers with one command
+- **`payment-gateways:migrate-from-v1`** — Automatic database migration from v1
