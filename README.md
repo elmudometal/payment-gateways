@@ -1,143 +1,303 @@
-# payment gateway integration in laravel
+# Payment Gateways for Laravel
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/arca/payment-gateways.svg?style=flat-square)](https://repositorios.arca.cl/payment-gateways/)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/arca/payment-gateways/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/elmudometal/payment-gateways/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/arca/payment-gateways/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/elmudometal/payment-gateways/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
-[![Total Downloads](https://img.shields.io/packagist/dt/arca/payment-gateways.svg?style=flat-square)](https://repositorios.arca.cl/payment-gateways/)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/arca/payment-gateways.svg?style=flat-square)](https://packagist.org/packages/arca/payment-gateways)
+[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/elmudometal/payment-gateways/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/elmudometal/payment-gateways/actions?query=workflow%3Arun-tests+branch%3Amain)
+[![Total Downloads](https://img.shields.io/packagist/dt/arca/payment-gateways.svg?style=flat-square)](https://packagist.org/packages/arca/payment-gateways)
 
-This package seeks to implement Chilean payment gateways and in general for Laravel allowing easy payment integration.
+A clean, testable, and extensible payment gateway integration for Laravel. Add new payment providers with zero modifications to the package.
 
-Payment gateways added:
-- Webpay
-- Getnet
-- PayPal
-- Flow
-- Niubiz
+## Supported Gateways
 
-## Support us
-If you want another payment gateway, write without problem and I will try to implement it.
+| Gateway     | Charge | Refund | Webhooks |
+|-------------|--------|--------|----------|
+| Webpay      | Yes    | —      | Yes      |
+| Getnet      | Yes    | —      | Yes      |
+| PayPal      | Yes    | Yes    | Yes      |
+| Flow        | Yes    | —      | Yes      |
+| Niubiz      | Yes    | —      | —        |
+| MercadoPago | Yes    | Yes    | Yes      |
+
+## Requirements
+
+- PHP 8.4+
+- Laravel 13.0+
 
 ## Installation
-
-You can install the package via composer:
 
 ```bash
 composer require arca/payment-gateways
 ```
 
-You can publish and run the migrations with:
+Install optional SDK dependencies only for the gateways you use:
 
 ```bash
-php artisan vendor:publish --tag="payment-gateways-migrations"
-php artisan migrate
+# Webpay
+composer require transbank/transbank-sdk
+
+# Getnet
+composer require dnetix/redirection
 ```
 
-You can publish the config file with:
+Publish the config and run migrations:
 
 ```bash
 php artisan vendor:publish --tag="payment-gateways-config"
+php artisan migrate
 ```
 
-This is the contents of the published config file:
+## Configuration
+
+Add your gateway credentials to `.env`:
+
+```env
+PAYMENT_GATEWAY=webpay
+
+# Webpay
+WEBPAY_ENV=sandbox
+WEBPAY_CODE=your-commerce-code
+WEBPAY_API_KEY=your-api-key
+
+# PayPal
+PAYPAL_ENV=sandbox
+PAYPAL_CLIENT_ID=your-client-id
+PAYPAL_CLIENT_SECRET=your-secret
+
+# MercadoPago
+MERCADOPAGO_ENV=sandbox
+MERCADOPAGO_ACCESS_TOKEN=your-access-token
+
+# Flow
+FLOW_ENV=sandbox
+FLOW_API_KEY=your-api-key
+FLOW_SECRET=your-secret-key
+
+# Getnet
+GETNET_ENV=sandbox
+GETNET_LOGIN=your-login
+GETNET_TRAN_KEY=your-tran-key
+
+# Niubiz
+NIUBIZ_ENV=sandbox
+NIUBIZ_MERCHANT_ID=your-merchant-id
+NIUBIZ_USER=your-user
+NIUBIZ_PASSWORD=your-password
+```
+
+## Usage
+
+### Creating and charging a payment
 
 ```php
-return [
-    'getnet' => [
-        'commerce_name' => 'Getnet Nombre de Comercio',
-        'login' => env('GETNET_LOGIN', ''),
-        'tranKey' => env('GETNET_TRAN_KEY', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\GetnetController::class,
-    ],
-    'webpay' => [
-        'commerce_name' => 'Webpay Nombre de Comercio',
-        'commerce_code' => env('WEBPAY_CODE', ''),
-        'commerce_api_key' => env('WEBPAY_API_KEY', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\WebpayController::class,
-    ],
-    'paypal' => [
-        'commerce_name' => 'Paypal Nombre de Comercio',
-        'client_id' => env('PAYPAL_CLIENT_ID', ''),
-        'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\PaypalController::class,
-    ],
-    'flow' => [
-        'commerce_name' => 'Flow Nombre de Comercio',
-        'api_key' => env('FLOW_API_KEY'),
-        'secret_key' => env('FLOW_SECRET'),        
-        'controller' => \Arca\PaymentGateways\Http\Controllers\FlowController::class,
-        'status' => [
-            '1' => 'pendiente de pago',
-            '2' => 'pagada',
-            '3' => 'rechazada',
-            '4' => 'anulada',
-            '-1' => 'Tarjeta inválida',
-            '-11' => 'Excede límite de reintentos de rechazos',
-            '-2' => 'Error de conexión',
-            '-3' => 'Excede monto máximo',
-            '-4' => 'Fecha de expiración inválida',
-            '-5' => 'Problema en autenticación',
-            '-6' => 'Rechazo general',
-            '-7' => 'Tarjeta bloqueada',
-            '-8' => 'Tarjeta vencida',
-            '-9' => 'Transacción no soportada',
-            '-10' => 'Problema en la transacción',
-            '999' => 'Error desconocido',
-        ],
-    ],
-    'niubiz' => [
-        'commerce_name' => 'Niubiz Nombre de Comercio',
-        'merchant_id' => env('NIUBIZ_MERCHANT_ID', ''),
-        'user' => env('NIUBIZ_USER', ''),
-        'password' => env('NIUBIZ_PASSWORD', ''),
-        'controller' => \Arca\PaymentGateways\Http\Controllers\NiubizController::class,
-    ],
-];
+use Arca\PaymentGateways\Services\PaymentService;
+use Arca\PaymentGateways\ValueObjects\ChargeIntent;
+use Arca\PaymentGateways\ValueObjects\Customer;
+use Arca\PaymentGateways\ValueObjects\Money;
+use Arca\PaymentGateways\ValueObjects\ReturnUrls;
+
+$service = app(PaymentService::class);
+
+// 1. Create the payment record
+$intent = new ChargeIntent(
+    money: Money::CLP(50000),
+    description: 'Order #123',
+    urls: new ReturnUrls(
+        returnUrl: route('payments.commit', ':uuid:'),
+        webhookUrl: route('payments.webhook', 'webpay'),
+    ),
+    customer: new Customer(email: 'buyer@example.com'),
+);
+
+$payment = $service->create('webpay', $intent, $order); // $order = your payable model
+
+// 2. Charge — most gateways return a redirect URL
+$result = $service->charge($payment, $intent);
+
+if ($result->requiresRedirect()) {
+    return redirect()->away($result->redirectUrl);
+}
 ```
 
-You can publish the assets file with:
+### Using the Facade
 
-```bash
-php artisan vendor:publish --tag="payment-gateways-assets"
+```php
+use Arca\PaymentGateways\Facades\PaymentGateways;
+
+// Use the default gateway
+$driver = PaymentGateways::driver();
+
+// Use a specific gateway
+$driver = PaymentGateways::driver('mercadopago');
 ```
 
-Optionally, you can publish the views using
+### Money value object
 
-```bash
-php artisan vendor:publish --tag="payment-gateways-views"
+```php
+use Arca\PaymentGateways\ValueObjects\Money;
+use Arca\PaymentGateways\Enums\Currency;
+
+Money::CLP(50000);                          // 50.000 CLP (no decimals)
+Money::USD(1999);                           // $19.99 USD (in cents)
+Money::PEN(3500);                           // S/ 35.00 PEN (in cents)
+Money::fromDecimal(19.99, Currency::USD);   // $19.99 USD
+```
+
+### Querying payment status
+
+```php
+$result = $service->query($payment);
+
+if ($result->isApproved()) {
+    // Payment was successful
+}
+```
+
+### Refunds
+
+```php
+// Full refund (PayPal, MercadoPago)
+$result = $service->refund($payment);
+
+// Partial refund
+$result = $service->refund($payment, Money::USD(500));
+```
+
+### Associating with your models
+
+The `Payment` model uses a polymorphic `payable` relationship:
+
+```php
+$payment = $service->create('webpay', $intent, $order);
+
+// Later
+$payment->payable; // returns your Order model
 ```
 
 ## Events
 
-```bash
- php artisan make:listener YourListenerClass --event=PaymentApproved
- php artisan make:listener Your2ListenerClass --event=PaymentRejected
+All events are dispatched automatically by `PaymentService`:
+
+| Event              | When                           |
+|--------------------|--------------------------------|
+| `PaymentInitiated` | `charge()` is called           |
+| `PaymentApproved`  | Status changes to `paid`       |
+| `PaymentRejected`  | Status changes to `failed`     |
+| `PaymentRefunded`  | Refund is successful           |
+| `WebhookReceived`  | Any webhook hits the endpoint  |
+
+```php
+use Arca\PaymentGateways\Events\PaymentApproved;
+
+Event::listen(PaymentApproved::class, function (PaymentApproved $event) {
+    $payment = $event->payment;
+    // Fulfill the order, send email, etc.
+});
 ```
 
-EventServiceProvider
+## Webhooks
+
+A unified webhook endpoint is registered automatically:
+
+```
+POST /payments/webhooks/{gateway}
+```
+
+Each gateway driver verifies the webhook signature and updates the payment. The `WebhookReceived` event is dispatched for every valid webhook.
+
+## Extending with custom gateways
+
+### Using the command
+
+```bash
+php artisan make:payment-driver MercadoLibre
+```
+
+This scaffolds `app/PaymentDrivers/MercadoLibre/MercadoLibreDriver.php`.
+
+### Registering the driver
+
 ```php
-protected $listen = [        
-        PaymentApproved::class => [
-            YourListenerClass::class,
-        ],
-        PaymentRejected::class => [
-            Your2ListenerClass::class,
-        ],
-    ];
+use Arca\PaymentGateways\Facades\PaymentGateways;
+
+// In a service provider
+PaymentGateways::extend('mercadolibre', function ($app) {
+    $config = config('payment-gateways.gateways.mercadolibre');
+    return new \App\PaymentDrivers\MercadoLibre\MercadoLibreDriver($config);
+});
+```
+
+Add the config:
+
+```php
+// config/payment-gateways.php
+'gateways' => [
+    'mercadolibre' => [
+        'driver' => 'mercadolibre',
+        'environment' => env('MERCADOLIBRE_ENV', 'sandbox'),
+        // your credentials...
+    ],
+],
+```
+
+### Optional interfaces
+
+Drivers can implement additional capabilities:
+
+```php
+use Arca\PaymentGateways\Contracts\SupportsRefunds;
+use Arca\PaymentGateways\Contracts\SupportsWebhooks;
+
+class MyDriver extends AbstractDriver implements PaymentGateway, SupportsRefunds, SupportsWebhooks
+{
+    // ...
+}
 ```
 
 ## Testing
+
+The package provides a fake driver for testing:
+
+```php
+use Arca\PaymentGateways\Facades\PaymentGateways;
+use Arca\PaymentGateways\Enums\PaymentStatus;
+use Arca\PaymentGateways\ValueObjects\ChargeResult;
+
+// Fake the default gateway
+$fake = PaymentGateways::fake();
+
+// Run your code...
+
+$fake->assertCharged(1);
+$fake->assertNotCharged();
+$fake->assertRefunded(1);
+
+// Simulate failures
+$fake->respondWith(new ChargeResult(
+    status: PaymentStatus::Failed,
+    message: 'Card declined',
+));
+```
+
+Run the package tests:
 
 ```bash
 composer test
 ```
 
+## Upgrading from v1.x
+
+See [UPGRADE.md](UPGRADE.md) for a complete migration guide. The package includes:
+
+- `php artisan payment-gateways:migrate-from-v1` — automatic database migration
+- `LegacyControllerAdapter` — bridge for apps with custom v1 controllers
+- `LegacyRouteRedirector` — 301 redirects from v1 routes to v2
+
 ## Changelog
 
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
+Please see [CHANGELOG.md](CHANGELOG.md) for more information on what has changed recently.
 
 ## Contributing
 
-Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Security Vulnerabilities
 
