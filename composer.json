@@ -21,12 +21,16 @@
     ],
     "require": {
         "php": "^8.1",
-        "dnetix/redirection": "^2.1",
         "illuminate/contracts": "^9.0 || ^10.0 || ^11.0 || ^12.0 || ^13.0",
-        "spatie/laravel-package-tools": "^1.14.0",
-        "transbank/transbank-sdk": "^3.0"
+        "spatie/laravel-package-tools": "^1.14.0"
+    },
+    "suggest": {
+        "transbank/transbank-sdk": "Required for the Webpay gateway (^3.0).",
+        "dnetix/redirection": "Required for the Getnet gateway (^2.1)."
     },
     "require-dev": {
+        "dnetix/redirection": "^2.1",
+        "transbank/transbank-sdk": "^3.0",
         "laravel/pint": "^1.0",
         "nunomaduro/collision": "^7.8",
         "nunomaduro/larastan": "^2.0.1",

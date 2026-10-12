@@ -17,6 +17,8 @@ class GetnetController extends Controller
 
     public function __construct()
     {
+        $this->requireSdk(PlacetoPay::class, 'dnetix/redirection:^2.1', 'Getnet');
+
         if (app()->environment('production')) {
             $this->placetoPay = new PlacetoPay([
                 'login' => config('payment-gateways.getnet.login'),
