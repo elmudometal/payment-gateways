@@ -2,6 +2,7 @@
 
 use Arca\PaymentGateways\Http\Controllers\FlowController;
 use Arca\PaymentGateways\Http\Controllers\GetnetController;
+use Arca\PaymentGateways\Http\Controllers\MercadoPagoController;
 use Arca\PaymentGateways\Http\Controllers\NiubizController;
 use Arca\PaymentGateways\Http\Controllers\PaypalController;
 use Arca\PaymentGateways\Http\Controllers\WebpayController;
@@ -56,5 +57,13 @@ return [
         'user' => env('NIUBIZ_USER', ''),
         'password' => env('NIUBIZ_PASSWORD', ''),
         'controller' => NiubizController::class,
+    ],
+    'mercadopago' => [
+        'commerce_name' => 'Mercado Pago Nombre de Comercio',
+        'access_token' => env('MERCADOPAGO_ACCESS_TOKEN', ''),
+        'webhook_secret' => env('MERCADOPAGO_WEBHOOK_SECRET', ''),
+        'currency' => env('MERCADOPAGO_CURRENCY', 'CLP'),
+        'statement_descriptor' => env('MERCADOPAGO_STATEMENT_DESCRIPTOR', ''),
+        'controller' => MercadoPagoController::class,
     ],
 ];
