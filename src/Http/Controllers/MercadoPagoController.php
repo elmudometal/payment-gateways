@@ -3,6 +3,8 @@
 namespace Arca\PaymentGateways\Http\Controllers;
 
 use Arca\PaymentGateways\Models\Payment;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -61,6 +63,9 @@ class MercadoPagoController extends Controller
             return redirect()->route('mercadopago.rejected', $payment->uuid);
         }
 
+        $commitUrl = route('mercadopago.commit', $payment->uuid);
+        $notificationUrl = route('mercadopago.notification', $payment->uuid);
+
         $preference = [
             'items' => [
                 [
@@ -73,12 +78,15 @@ class MercadoPagoController extends Controller
             ],
             'external_reference' => $payment->uuid,
             'back_urls' => [
-                'success' => route('mercadopago.commit', $payment->uuid),
-                'pending' => route('mercadopago.commit', $payment->uuid),
-                'failure' => route('mercadopago.commit', $payment->uuid),
+                'success' => $commitUrl,
+                'pending' => $commitUrl,
+                'failure' => $commitUrl,
             ],
-            'auto_return' => 'approved',
-            'notification_url' => route('mercadopago.notification', $payment->uuid),
+            // Mercado Pago rejects the whole preference when auto_return is set with a localhost or
+            // plain-HTTP back URL, and cannot deliver webhooks to a private address. Both are only
+            // sent for public HTTPS URLs, so the checkout also works in local development.
+            'auto_return' => $this->isPublicUrl($commitUrl) ? 'approved' : null,
+            'notification_url' => $this->isPublicUrl($notificationUrl) ? $notificationUrl : null,
             'statement_descriptor' => (string) config('payment-gateways.mercadopago.statement_descriptor') ?: null,
         ];
 
@@ -212,6 +220,21 @@ class MercadoPagoController extends Controller
         $payment->save();
     }
 
+    /**
+     * Whether Mercado Pago can reach the URL: HTTPS and not a local or development host.
+     */
+    protected function isPublicUrl(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return str_starts_with(strtolower($url), 'https://')
+            && $host !== ''
+            && ! in_array($host, ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'], true)
+            && ! str_ends_with($host, '.test')
+            && ! str_ends_with($host, '.localhost')
+            && ! str_ends_with($host, '.local');
+    }
+
     protected function mapStatus(string $status): string
     {
         return match ($status) {
@@ -223,11 +246,22 @@ class MercadoPagoController extends Controller
     }
 
     /**
-     * Valida el header x-signature (HMAC-SHA256) si hay webhook_secret configurado.
+     * Valida el header x-signature (HMAC-SHA256).
+     *
+     * Sin webhook_secret: en producción se rechaza la notificación; en otros entornos se acepta
+     * (registrándolo), porque el pago igual se vuelve a consultar en la API antes de cambiar.
      */
     protected function validSignature(Request $request, string $dataId): bool
     {
         if (empty($this->webhookSecret)) {
+            if (app()->isProduction()) {
+                Log::error('MercadoPago notification rejected: payment-gateways.mercadopago.webhook_secret is not configured.');
+
+                return false;
+            }
+
+            Log::warning('MercadoPago notification accepted without signature check: no webhook_secret configured.');
+
             return true;
         }
 
@@ -251,16 +285,52 @@ class MercadoPagoController extends Controller
         }
         $manifest .= "ts:{$parts['ts']};";
 
-        return hash_equals(hash_hmac('sha256', $manifest, $this->webhookSecret), $parts['v1']);
+        if (! hash_equals(hash_hmac('sha256', $manifest, $this->webhookSecret), $parts['v1'])) {
+            return false;
+        }
+
+        return $this->isFreshTimestamp((string) $parts['ts']);
     }
 
+    /**
+     * Optional replay protection: with webhook_tolerance (seconds) set, signatures older than that
+     * are refused. Off by default, so Mercado Pago's own retries are never cut.
+     */
+    protected function isFreshTimestamp(string $timestamp): bool
+    {
+        $tolerance = config('payment-gateways.mercadopago.webhook_tolerance');
+
+        if ($tolerance === null || $tolerance === '') {
+            return true;
+        }
+
+        if (! ctype_digit($timestamp)) {
+            return false;
+        }
+
+        // Mercado Pago sends seconds; accept milliseconds too.
+        $seconds = strlen($timestamp) > 11 ? intdiv((int) $timestamp, 1000) : (int) $timestamp;
+
+        return abs(now()->getTimestamp() - $seconds) <= (int) $tolerance;
+    }
+
+    /**
+     * Calls the Mercado Pago API with timeouts. Reads (GET) are retried on connection errors and
+     * 5xx answers; creating a preference (POST) is not, so a slow answer never creates two.
+     */
     private function send(string $endpoint, array $params = [], string $method = 'GET'): array
     {
-        $request = Http::acceptJson()->withToken($this->accessToken);
+        $request = Http::acceptJson()
+            ->withToken($this->accessToken)
+            ->connectTimeout(5)
+            ->timeout(15);
 
         $response = ($method === 'POST')
             ? $request->post($this->apiUrl.'/'.$endpoint, $params)
-            : $request->get($this->apiUrl.'/'.$endpoint, $params);
+            : $request
+                ->retry(3, 200, fn (\Throwable $exception) => $exception instanceof ConnectionException
+                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
+                ->get($this->apiUrl.'/'.$endpoint, $params);
 
         if (! $response->successful()) {
             throw new \Exception('MercadoPago API error: '.$response->body());

@@ -7,7 +7,10 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Sleep;
 
 beforeEach(function () {
     Schema::create('payments', function (Blueprint $table) {
@@ -66,6 +69,8 @@ function mpSignature(string $dataId, string $requestId, string $ts, string $secr
 // init
 
 it('creates a preference and redirects to the checkout', function () {
+    URL::forceRootUrl('https://tienda.example.cl');
+    URL::forceScheme('https');
     Http::fake([
         'api.mercadopago.com/checkout/preferences' => Http::response([
             'id' => 'PREF-123',
@@ -91,6 +96,25 @@ it('creates a preference and redirects to the checkout', function () {
             && ! isset($request['statement_descriptor']);
     });
 });
+
+it('omits auto_return and the webhook url when the site is not publicly reachable', function (string $root) {
+    URL::forceRootUrl($root);
+    URL::forceScheme((string) parse_url($root, PHP_URL_SCHEME));
+    Http::fake([
+        'api.mercadopago.com/checkout/preferences' => Http::response(['id' => 'PREF-123', 'init_point' => 'https://www.mercadopago.cl/checkout']),
+    ]);
+
+    $this->get(route('mercadopago.init', $this->payment->uuid))->assertRedirect('https://www.mercadopago.cl/checkout');
+
+    Http::assertSent(fn (HttpRequest $request) => ! isset($request['auto_return'])
+        && ! isset($request['notification_url'])
+        && $request['back_urls']['success'] === route('mercadopago.commit', $this->payment->uuid));
+})->with([
+    'localhost' => ['http://localhost'],
+    'plain http' => ['http://tienda.example.cl'],
+    'herd .test' => ['https://tienda.test'],
+    'loopback' => ['https://127.0.0.1:8000'],
+]);
 
 it('redirects to rejected when the preference cannot be created', function () {
     Http::fake(['api.mercadopago.com/*' => Http::response(['message' => 'invalid token'], 401)]);
@@ -300,4 +324,87 @@ it('returns 500 so mercado pago retries when the api fails', function () {
         'type' => 'payment',
         'data' => ['id' => '123456789'],
     ])->assertStatus(500);
+});
+
+// routes
+
+it('serves the buyer pages through the web middleware so hooks can use the session', function (string $route) {
+    expect(Route::getRoutes()->getByName($route)->gatherMiddleware())->toContain('web');
+})->with(['mercadopago.init', 'mercadopago.commit', 'mercadopago.successful', 'mercadopago.pending', 'mercadopago.rejected']);
+
+it('keeps the webhook outside the web middleware so it is not blocked by csrf', function () {
+    expect(Route::getRoutes()->getByName('mercadopago.notification')->gatherMiddleware())->not->toContain('web');
+});
+
+// webhook hardening
+
+it('refuses unsigned notifications in production when no secret is configured', function () {
+    app()->detectEnvironment(fn () => 'production');
+    Http::fake();
+
+    $this->postJson(route('mercadopago.notification', $this->payment->uuid).'?data.id=123456789&type=payment')
+        ->assertStatus(401);
+
+    Http::assertNothingSent();
+    expect($this->payment->fresh()->status)->toBe(Payment::PENDING_STATUS);
+});
+
+it('refuses a correctly signed notification older than the configured tolerance', function () {
+    config()->set('payment-gateways.mercadopago.webhook_secret', 'SECRET');
+    config()->set('payment-gateways.mercadopago.webhook_tolerance', 300);
+    Http::fake(['api.mercadopago.com/v1/payments/123456789' => Http::response(mpPayment($this->payment))]);
+    $url = route('mercadopago.notification', $this->payment->uuid).'?data.id=123456789&type=payment';
+
+    $this->postJson($url, [], [
+        'x-signature' => mpSignature('123456789', 'req-1', (string) (time() - 3600), 'SECRET'),
+        'x-request-id' => 'req-1',
+    ])->assertStatus(401);
+
+    expect($this->payment->fresh()->status)->toBe(Payment::PENDING_STATUS);
+
+    $this->postJson($url, [], [
+        'x-signature' => mpSignature('123456789', 'req-1', (string) time(), 'SECRET'),
+        'x-request-id' => 'req-1',
+    ])->assertOk();
+
+    expect($this->payment->fresh()->status)->toBe(Payment::PAID_STATUS);
+});
+
+// api resilience
+
+it('retries reading a payment when the api has a temporary failure', function () {
+    Sleep::fake();
+    Http::fakeSequence('api.mercadopago.com/v1/payments/*')
+        ->push([], 503)
+        ->push(mpPayment($this->payment));
+
+    $this->postJson(route('mercadopago.notification', $this->payment->uuid), [
+        'type' => 'payment',
+        'data' => ['id' => '123456789'],
+    ])->assertOk();
+
+    expect($this->payment->fresh()->status)->toBe(Payment::PAID_STATUS);
+    Http::assertSentCount(2);
+});
+
+it('does not retry a client error from the api', function () {
+    Sleep::fake();
+    Http::fake(['api.mercadopago.com/v1/payments/*' => Http::response(['message' => 'not found'], 404)]);
+
+    $this->postJson(route('mercadopago.notification', $this->payment->uuid), [
+        'type' => 'payment',
+        'data' => ['id' => '123456789'],
+    ])->assertStatus(500);
+
+    Http::assertSentCount(1);
+});
+
+it('never retries creating a preference', function () {
+    Sleep::fake();
+    Http::fake(['api.mercadopago.com/checkout/preferences' => Http::response([], 503)]);
+
+    $this->get(route('mercadopago.init', $this->payment->uuid))
+        ->assertRedirect(route('mercadopago.rejected', $this->payment->uuid));
+
+    Http::assertSentCount(1);
 });

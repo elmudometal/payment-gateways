@@ -34,6 +34,8 @@ class WebpayController extends Controller
 
     public function __construct()
     {
+        $this->requireSdk(WebpayPlus::class, 'transbank/transbank-sdk:^3.0', 'Webpay');
+
         /** Webpay api context **/
         if (app()->environment('production')) {
             WebpayPlus::configureForProduction(config('payment-gateways.webpay.commerce_code'), config('payment-gateways.webpay.commerce_api_key'));
