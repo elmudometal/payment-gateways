@@ -1,6 +1,7 @@
 <?php
 
 use Arca\PaymentGateways\Http\Controllers\Controller;
+use Transbank\Webpay\WebpayPlus;
 
 function gatewayController(): Controller
 {
@@ -18,5 +19,5 @@ it('explains how to install a gateway sdk that is missing', function () {
 })->throws(RuntimeException::class, 'The Ejemplo gateway needs vendor/sdk:^1.0. Install it with: composer require vendor/sdk:^1.0');
 
 it('does nothing when the gateway sdk is installed', function () {
-    expect(fn () => gatewayController()->check(\Transbank\Webpay\WebpayPlus::class))->not->toThrow(RuntimeException::class);
+    expect(fn () => gatewayController()->check(WebpayPlus::class))->not->toThrow(RuntimeException::class);
 });
