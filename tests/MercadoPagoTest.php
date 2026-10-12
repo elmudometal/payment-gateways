@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 
 beforeEach(function () {
@@ -300,4 +301,14 @@ it('returns 500 so mercado pago retries when the api fails', function () {
         'type' => 'payment',
         'data' => ['id' => '123456789'],
     ])->assertStatus(500);
+});
+
+// routes
+
+it('serves the buyer pages through the web middleware so hooks can use the session', function (string $route) {
+    expect(Route::getRoutes()->getByName($route)->gatherMiddleware())->toContain('web');
+})->with(['mercadopago.init', 'mercadopago.commit', 'mercadopago.successful', 'mercadopago.pending', 'mercadopago.rejected']);
+
+it('keeps the webhook outside the web middleware so it is not blocked by csrf', function () {
+    expect(Route::getRoutes()->getByName('mercadopago.notification')->gatherMiddleware())->not->toContain('web');
 });
