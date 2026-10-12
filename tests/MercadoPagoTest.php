@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
 
 beforeEach(function () {
     Schema::create('payments', function (Blueprint $table) {
@@ -67,6 +68,8 @@ function mpSignature(string $dataId, string $requestId, string $ts, string $secr
 // init
 
 it('creates a preference and redirects to the checkout', function () {
+    URL::forceRootUrl('https://tienda.example.cl');
+    URL::forceScheme('https');
     Http::fake([
         'api.mercadopago.com/checkout/preferences' => Http::response([
             'id' => 'PREF-123',
@@ -92,6 +95,25 @@ it('creates a preference and redirects to the checkout', function () {
             && ! isset($request['statement_descriptor']);
     });
 });
+
+it('omits auto_return and the webhook url when the site is not publicly reachable', function (string $root) {
+    URL::forceRootUrl($root);
+    URL::forceScheme((string) parse_url($root, PHP_URL_SCHEME));
+    Http::fake([
+        'api.mercadopago.com/checkout/preferences' => Http::response(['id' => 'PREF-123', 'init_point' => 'https://www.mercadopago.cl/checkout']),
+    ]);
+
+    $this->get(route('mercadopago.init', $this->payment->uuid))->assertRedirect('https://www.mercadopago.cl/checkout');
+
+    Http::assertSent(fn (HttpRequest $request) => ! isset($request['auto_return'])
+        && ! isset($request['notification_url'])
+        && $request['back_urls']['success'] === route('mercadopago.commit', $this->payment->uuid));
+})->with([
+    'localhost' => ['http://localhost'],
+    'plain http' => ['http://tienda.example.cl'],
+    'herd .test' => ['https://tienda.test'],
+    'loopback' => ['https://127.0.0.1:8000'],
+]);
 
 it('redirects to rejected when the preference cannot be created', function () {
     Http::fake(['api.mercadopago.com/*' => Http::response(['message' => 'invalid token'], 401)]);

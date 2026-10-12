@@ -61,6 +61,9 @@ class MercadoPagoController extends Controller
             return redirect()->route('mercadopago.rejected', $payment->uuid);
         }
 
+        $commitUrl = route('mercadopago.commit', $payment->uuid);
+        $notificationUrl = route('mercadopago.notification', $payment->uuid);
+
         $preference = [
             'items' => [
                 [
@@ -73,12 +76,15 @@ class MercadoPagoController extends Controller
             ],
             'external_reference' => $payment->uuid,
             'back_urls' => [
-                'success' => route('mercadopago.commit', $payment->uuid),
-                'pending' => route('mercadopago.commit', $payment->uuid),
-                'failure' => route('mercadopago.commit', $payment->uuid),
+                'success' => $commitUrl,
+                'pending' => $commitUrl,
+                'failure' => $commitUrl,
             ],
-            'auto_return' => 'approved',
-            'notification_url' => route('mercadopago.notification', $payment->uuid),
+            // Mercado Pago rejects the whole preference when auto_return is set with a localhost or
+            // plain-HTTP back URL, and cannot deliver webhooks to a private address. Both are only
+            // sent for public HTTPS URLs, so the checkout also works in local development.
+            'auto_return' => $this->isPublicUrl($commitUrl) ? 'approved' : null,
+            'notification_url' => $this->isPublicUrl($notificationUrl) ? $notificationUrl : null,
             'statement_descriptor' => (string) config('payment-gateways.mercadopago.statement_descriptor') ?: null,
         ];
 
@@ -210,6 +216,21 @@ class MercadoPagoController extends Controller
         }
 
         $payment->save();
+    }
+
+    /**
+     * Whether Mercado Pago can reach the URL: HTTPS and not a local or development host.
+     */
+    protected function isPublicUrl(string $url): bool
+    {
+        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return str_starts_with(strtolower($url), 'https://')
+            && $host !== ''
+            && ! in_array($host, ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'], true)
+            && ! str_ends_with($host, '.test')
+            && ! str_ends_with($host, '.localhost')
+            && ! str_ends_with($host, '.local');
     }
 
     protected function mapStatus(string $status): string
