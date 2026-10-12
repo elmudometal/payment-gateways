@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Sleep;
 
 beforeEach(function () {
     Schema::create('payments', function (Blueprint $table) {
@@ -367,4 +368,43 @@ it('refuses a correctly signed notification older than the configured tolerance'
     ])->assertOk();
 
     expect($this->payment->fresh()->status)->toBe(Payment::PAID_STATUS);
+});
+
+// api resilience
+
+it('retries reading a payment when the api has a temporary failure', function () {
+    Sleep::fake();
+    Http::fakeSequence('api.mercadopago.com/v1/payments/*')
+        ->push([], 503)
+        ->push(mpPayment($this->payment));
+
+    $this->postJson(route('mercadopago.notification', $this->payment->uuid), [
+        'type' => 'payment',
+        'data' => ['id' => '123456789'],
+    ])->assertOk();
+
+    expect($this->payment->fresh()->status)->toBe(Payment::PAID_STATUS);
+    Http::assertSentCount(2);
+});
+
+it('does not retry a client error from the api', function () {
+    Sleep::fake();
+    Http::fake(['api.mercadopago.com/v1/payments/*' => Http::response(['message' => 'not found'], 404)]);
+
+    $this->postJson(route('mercadopago.notification', $this->payment->uuid), [
+        'type' => 'payment',
+        'data' => ['id' => '123456789'],
+    ])->assertStatus(500);
+
+    Http::assertSentCount(1);
+});
+
+it('never retries creating a preference', function () {
+    Sleep::fake();
+    Http::fake(['api.mercadopago.com/checkout/preferences' => Http::response([], 503)]);
+
+    $this->get(route('mercadopago.init', $this->payment->uuid))
+        ->assertRedirect(route('mercadopago.rejected', $this->payment->uuid));
+
+    Http::assertSentCount(1);
 });

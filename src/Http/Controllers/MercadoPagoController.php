@@ -3,6 +3,8 @@
 namespace Arca\PaymentGateways\Http\Controllers;
 
 use Arca\PaymentGateways\Models\Payment;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -312,13 +314,23 @@ class MercadoPagoController extends Controller
         return abs(now()->getTimestamp() - $seconds) <= (int) $tolerance;
     }
 
+    /**
+     * Calls the Mercado Pago API with timeouts. Reads (GET) are retried on connection errors and
+     * 5xx answers; creating a preference (POST) is not, so a slow answer never creates two.
+     */
     private function send(string $endpoint, array $params = [], string $method = 'GET'): array
     {
-        $request = Http::acceptJson()->withToken($this->accessToken);
+        $request = Http::acceptJson()
+            ->withToken($this->accessToken)
+            ->connectTimeout(5)
+            ->timeout(15);
 
         $response = ($method === 'POST')
             ? $request->post($this->apiUrl.'/'.$endpoint, $params)
-            : $request->get($this->apiUrl.'/'.$endpoint, $params);
+            : $request
+                ->retry(3, 200, fn (\Throwable $exception) => $exception instanceof ConnectionException
+                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
+                ->get($this->apiUrl.'/'.$endpoint, $params);
 
         if (! $response->successful()) {
             throw new \Exception('MercadoPago API error: '.$response->body());
