@@ -244,11 +244,22 @@ class MercadoPagoController extends Controller
     }
 
     /**
-     * Valida el header x-signature (HMAC-SHA256) si hay webhook_secret configurado.
+     * Valida el header x-signature (HMAC-SHA256).
+     *
+     * Sin webhook_secret: en producción se rechaza la notificación; en otros entornos se acepta
+     * (registrándolo), porque el pago igual se vuelve a consultar en la API antes de cambiar.
      */
     protected function validSignature(Request $request, string $dataId): bool
     {
         if (empty($this->webhookSecret)) {
+            if (app()->isProduction()) {
+                Log::error('MercadoPago notification rejected: payment-gateways.mercadopago.webhook_secret is not configured.');
+
+                return false;
+            }
+
+            Log::warning('MercadoPago notification accepted without signature check: no webhook_secret configured.');
+
             return true;
         }
 
@@ -272,7 +283,33 @@ class MercadoPagoController extends Controller
         }
         $manifest .= "ts:{$parts['ts']};";
 
-        return hash_equals(hash_hmac('sha256', $manifest, $this->webhookSecret), $parts['v1']);
+        if (! hash_equals(hash_hmac('sha256', $manifest, $this->webhookSecret), $parts['v1'])) {
+            return false;
+        }
+
+        return $this->isFreshTimestamp((string) $parts['ts']);
+    }
+
+    /**
+     * Optional replay protection: with webhook_tolerance (seconds) set, signatures older than that
+     * are refused. Off by default, so Mercado Pago's own retries are never cut.
+     */
+    protected function isFreshTimestamp(string $timestamp): bool
+    {
+        $tolerance = config('payment-gateways.mercadopago.webhook_tolerance');
+
+        if ($tolerance === null || $tolerance === '') {
+            return true;
+        }
+
+        if (! ctype_digit($timestamp)) {
+            return false;
+        }
+
+        // Mercado Pago sends seconds; accept milliseconds too.
+        $seconds = strlen($timestamp) > 11 ? intdiv((int) $timestamp, 1000) : (int) $timestamp;
+
+        return abs(now()->getTimestamp() - $seconds) <= (int) $tolerance;
     }
 
     private function send(string $endpoint, array $params = [], string $method = 'GET'): array

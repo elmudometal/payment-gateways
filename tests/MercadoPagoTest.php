@@ -334,3 +334,37 @@ it('serves the buyer pages through the web middleware so hooks can use the sessi
 it('keeps the webhook outside the web middleware so it is not blocked by csrf', function () {
     expect(Route::getRoutes()->getByName('mercadopago.notification')->gatherMiddleware())->not->toContain('web');
 });
+
+// webhook hardening
+
+it('refuses unsigned notifications in production when no secret is configured', function () {
+    app()->detectEnvironment(fn () => 'production');
+    Http::fake();
+
+    $this->postJson(route('mercadopago.notification', $this->payment->uuid).'?data.id=123456789&type=payment')
+        ->assertStatus(401);
+
+    Http::assertNothingSent();
+    expect($this->payment->fresh()->status)->toBe(Payment::PENDING_STATUS);
+});
+
+it('refuses a correctly signed notification older than the configured tolerance', function () {
+    config()->set('payment-gateways.mercadopago.webhook_secret', 'SECRET');
+    config()->set('payment-gateways.mercadopago.webhook_tolerance', 300);
+    Http::fake(['api.mercadopago.com/v1/payments/123456789' => Http::response(mpPayment($this->payment))]);
+    $url = route('mercadopago.notification', $this->payment->uuid).'?data.id=123456789&type=payment';
+
+    $this->postJson($url, [], [
+        'x-signature' => mpSignature('123456789', 'req-1', (string) (time() - 3600), 'SECRET'),
+        'x-request-id' => 'req-1',
+    ])->assertStatus(401);
+
+    expect($this->payment->fresh()->status)->toBe(Payment::PENDING_STATUS);
+
+    $this->postJson($url, [], [
+        'x-signature' => mpSignature('123456789', 'req-1', (string) time(), 'SECRET'),
+        'x-request-id' => 'req-1',
+    ])->assertOk();
+
+    expect($this->payment->fresh()->status)->toBe(Payment::PAID_STATUS);
+});

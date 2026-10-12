@@ -62,6 +62,8 @@ return [
         'commerce_name' => 'Mercado Pago Nombre de Comercio',
         'access_token' => env('MERCADOPAGO_ACCESS_TOKEN', ''),
         'webhook_secret' => env('MERCADOPAGO_WEBHOOK_SECRET', ''),
+        // Seconds a signed notification stays valid (replay protection). null = no limit.
+        'webhook_tolerance' => env('MERCADOPAGO_WEBHOOK_TOLERANCE'),
         'currency' => env('MERCADOPAGO_CURRENCY', 'CLP'),
         'statement_descriptor' => env('MERCADOPAGO_STATEMENT_DESCRIPTOR', ''),
         'controller' => MercadoPagoController::class,
