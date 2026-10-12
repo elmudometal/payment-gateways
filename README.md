@@ -13,6 +13,7 @@ Payment gateways added:
 - PayPal
 - Flow
 - Niubiz
+- Mercado Pago (Checkout Pro)
 
 ## Support us
 If you want another payment gateway, write without problem and I will try to implement it.
@@ -91,6 +92,14 @@ return [
         'password' => env('NIUBIZ_PASSWORD', ''),
         'controller' => \Arca\PaymentGateways\Http\Controllers\NiubizController::class,
     ],
+    'mercadopago' => [
+        'commerce_name' => 'Mercado Pago Nombre de Comercio',
+        'access_token' => env('MERCADOPAGO_ACCESS_TOKEN', ''),
+        'webhook_secret' => env('MERCADOPAGO_WEBHOOK_SECRET', ''),
+        'currency' => env('MERCADOPAGO_CURRENCY', 'CLP'),
+        'statement_descriptor' => env('MERCADOPAGO_STATEMENT_DESCRIPTOR', ''),
+        'controller' => \Arca\PaymentGateways\Http\Controllers\MercadoPagoController::class,
+    ],
 ];
 ```
 
@@ -105,6 +114,22 @@ Optionally, you can publish the views using
 ```bash
 php artisan vendor:publish --tag="payment-gateways-views"
 ```
+
+## Mercado Pago (Checkout Pro)
+
+Set your credentials in `.env`:
+
+```bash
+MERCADOPAGO_ACCESS_TOKEN=APP_USR-...
+MERCADOPAGO_WEBHOOK_SECRET=   # "Clave secreta" from Your integrations > Webhooks (optional, enables x-signature validation)
+MERCADOPAGO_CURRENCY=CLP      # CLP, ARS, BRL, MXN, COP, PEN, UYU
+```
+
+Redirect the buyer to `route('mercadopago.init', $payment->uuid)`. The package creates a preference, sends the buyer to Mercado Pago and, on return (`mercadopago.commit`), queries the payment through the API (the query string status is never trusted). Each preference sets its own `notification_url` (`POST /mercadopago/notification/{uuid}`), so the payment status is also updated asynchronously, including payments that end up `pending` (cash, transfers).
+
+Status mapping: `approved` → `Paid`, `rejected`/`cancelled` → `Canceled`, `refunded`/`charged_back` → `Reversed`, anything else → `Pending`.
+
+> The notification route must be publicly reachable and excluded from CSRF verification if you wrap it with the `web` middleware.
 
 ## Events
 
