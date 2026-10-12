@@ -53,17 +53,16 @@ class Payment extends Model
         'voucher' => 'json',
     ];
 
+    /**
+     * Status event waiting for the save to finish (see finishSave()).
+     */
+    protected bool $statusEventPending = false;
+
     protected static function booted(): void
     {
         static::updated(function (Payment $payment) {
             if ($payment->wasChanged('status')) {
-                if ($payment->status == Payment::PAID_STATUS) {
-                    PaymentApproved::dispatch($payment);
-                }
-
-                if ($payment->status == Payment::CANCELED_STATUS) {
-                    PaymentRejected::dispatch($payment);
-                }
+                $payment->statusEventPending = true;
             }
         });
 
@@ -72,14 +71,32 @@ class Payment extends Model
         });
 
         static::created(function (Payment $payment) {
-            if ($payment->status == Payment::PAID_STATUS) {
-                PaymentApproved::dispatch($payment);
-            }
-
-            if ($payment->status == Payment::CANCELED_STATUS) {
-                PaymentRejected::dispatch($payment);
-            }
+            $payment->statusEventPending = true;
         });
+    }
+
+    /**
+     * Dispatch PaymentApproved / PaymentRejected only once the save is complete.
+     *
+     * Eloquent fires "created" and "updated" before syncing the original attributes. Dispatching
+     * there meant that a listener saving this same payment (to add a comment, for instance) still
+     * saw the status as changed and dispatched the event again, looping forever.
+     */
+    protected function finishSave(array $options)
+    {
+        parent::finishSave($options);
+
+        if (! $this->statusEventPending) {
+            return;
+        }
+
+        $this->statusEventPending = false;
+
+        match ($this->status) {
+            self::PAID_STATUS => PaymentApproved::dispatch($this),
+            self::CANCELED_STATUS => PaymentRejected::dispatch($this),
+            default => null,
+        };
     }
 
     protected static function newFactory(): PaymentFactory
