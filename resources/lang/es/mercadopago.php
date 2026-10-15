@@ -1,0 +1,30 @@
+<?php
+
+// Mensajes para el status_detail de un pago de Mercado Pago.
+return [
+    'pending_contingency' => 'Estamos procesando el pago.',
+    'pending_review_manual' => 'El pago está en revisión.',
+    'pending_waiting_payment' => 'Esperando que se realice el pago.',
+    'pending_waiting_transfer' => 'Esperando la transferencia.',
+    'cc_rejected_bad_filled_card_number' => 'Revisa el número de tarjeta.',
+    'cc_rejected_bad_filled_date' => 'Revisa la fecha de vencimiento.',
+    'cc_rejected_bad_filled_other' => 'Revisa los datos de la tarjeta.',
+    'cc_rejected_bad_filled_security_code' => 'Revisa el código de seguridad de la tarjeta.',
+    'cc_rejected_blacklist' => 'No pudimos procesar tu pago.',
+    'cc_rejected_call_for_authorize' => 'Debes autorizar el pago ante el emisor de tu tarjeta.',
+    'cc_rejected_card_disabled' => 'Debes activar tu tarjeta con el emisor.',
+    'cc_rejected_card_error' => 'No pudimos procesar tu pago.',
+    'cc_rejected_duplicated_payment' => 'Ya hiciste un pago por ese valor.',
+    'cc_rejected_high_risk' => 'Tu pago fue rechazado por prevención de fraude.',
+    'cc_rejected_insufficient_amount' => 'Tu tarjeta no tiene fondos suficientes.',
+    'cc_rejected_invalid_installments' => 'Tu tarjeta no procesa pagos en esa cantidad de cuotas.',
+    'cc_rejected_max_attempts' => 'Llegaste al límite de intentos permitidos.',
+    'cc_rejected_other_reason' => 'El emisor de la tarjeta no procesó el pago.',
+    'cc_amount_rate_limit_exceeded' => 'Superaste el límite disponible de tu medio de pago.',
+    'rejected_high_risk' => 'Tu pago fue rechazado por prevención de fraude.',
+    'rejected_by_bank' => 'Operación rechazada por el banco.',
+    'rejected_insufficient_data' => 'Faltan datos obligatorios para procesar el pago.',
+    'expired' => 'El pago expiró.',
+    'by_collector' => 'Pago cancelado por el comercio.',
+    'by_payer' => 'Pago cancelado por el comprador.',
+];

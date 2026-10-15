@@ -2,20 +2,10 @@
 
 use Arca\PaymentGateways\Enums\Currency;
 
-it('CLP has zero minor units', function () {
-    expect(Currency::CLP->minorUnit())->toBe(0);
-});
+it('has no decimals for CLP and PYG', function (Currency $currency) {
+    expect($currency->minorUnit())->toBe(0);
+})->with([Currency::CLP, Currency::PYG]);
 
-it('USD has two minor units', function () {
-    expect(Currency::USD->minorUnit())->toBe(2);
-});
-
-it('PEN has two minor units', function () {
-    expect(Currency::PEN->minorUnit())->toBe(2);
-});
-
-it('all currencies have string values', function () {
-    foreach (Currency::cases() as $currency) {
-        expect($currency->value)->toBeString()->toHaveLength(3);
-    }
-});
+it('has two decimals for the other currencies', function (Currency $currency) {
+    expect($currency->minorUnit())->toBe(2);
+})->with([Currency::USD, Currency::PEN, Currency::ARS, Currency::BRL, Currency::MXN, Currency::COP, Currency::UYU, Currency::EUR]);

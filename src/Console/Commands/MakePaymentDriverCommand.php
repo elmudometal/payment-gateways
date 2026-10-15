@@ -8,15 +8,15 @@ use Illuminate\Support\Str;
 
 class MakePaymentDriverCommand extends Command
 {
-    protected $signature = 'make:payment-driver {name : The name of the payment driver (e.g. MercadoPago)}';
+    protected $signature = 'make:payment-driver {name : The name of the payment driver (e.g. Khipu)}';
 
     protected $description = 'Scaffold a new payment gateway driver';
 
     public function handle(Filesystem $files): int
     {
-        $name = $this->argument('name');
+        $name = (string) $this->argument('name');
         $studly = Str::studly($name);
-        $lower = Str::lower($name);
+        $lower = Str::lower($studly);
 
         $dir = app_path("PaymentDrivers/{$studly}");
 
@@ -34,15 +34,13 @@ class MakePaymentDriverCommand extends Command
         $this->newLine();
         $this->line('  Register it in a service provider:');
         $this->newLine();
-        $this->line("  <comment>PaymentGateways::extend('{$lower}', function (\$app, \$config) {</comment>");
-        $this->line("  <comment>    return new \\App\\PaymentDrivers\\{$studly}\\{$studly}Driver(\$config);</comment>");
-        $this->line('  <comment>});</comment>');
+        $this->line("  <comment>PaymentGateways::extend('{$lower}', fn (\$app, array \$config) => new \\App\\PaymentDrivers\\{$studly}\\{$studly}Driver(\$config));</comment>");
         $this->newLine();
-        $this->line('  Then add the gateway config in <comment>config/payment-gateways.php</comment>:');
+        $this->line('  Then add the gateway in <comment>config/payment-gateways.php</comment>:');
         $this->newLine();
         $this->line("  <comment>'{$lower}' => [</comment>");
         $this->line("  <comment>    'driver' => '{$lower}',</comment>");
-        $this->line("  <comment>    'environment' => env('".Str::upper($name)."_ENV', 'sandbox'),</comment>");
+        $this->line("  <comment>    'environment' => env('".Str::upper(Str::snake($studly))."_ENV'),</comment>");
         $this->line('  <comment>    // your credentials...</comment>');
         $this->line('  <comment>],</comment>');
 
@@ -51,58 +49,77 @@ class MakePaymentDriverCommand extends Command
 
     protected function driverStub(string $studly, string $lower): string
     {
-        return <<<PHP
+        $stub = <<<'PHP'
         <?php
 
-        namespace App\PaymentDrivers\\{$studly};
+        namespace App\PaymentDrivers\{{studly}};
 
-        use Arca\PaymentGateways\Contracts\PaymentGateway;
         use Arca\PaymentGateways\Drivers\AbstractDriver;
         use Arca\PaymentGateways\Enums\PaymentStatus;
         use Arca\PaymentGateways\Models\Payment;
         use Arca\PaymentGateways\ValueObjects\ChargeIntent;
         use Arca\PaymentGateways\ValueObjects\ChargeResult;
+        use Arca\PaymentGateways\ValueObjects\Money;
+        use Illuminate\Http\Request;
 
-        class {$studly}Driver extends AbstractDriver implements PaymentGateway
+        class {{studly}}Driver extends AbstractDriver
         {
             public function name(): string
             {
-                return '{$lower}';
+                return '{{lower}}';
             }
 
-            public function charge(Payment \$payment, ChargeIntent \$intent): ChargeResult
+            public function charge(Payment $payment, ChargeIntent $intent): ChargeResult
             {
-                // TODO: Implement charge logic
-                // 1. Call the gateway API to create a payment session
-                // 2. Store the external ID: \$payment->external_id = ...
-                // 3. Return a ChargeResult with redirect URL or status
+                // Create the checkout with $intent->money and $intent->urls (return and webhook URLs).
+                // Send $this->reference($payment) as the order reference.
+                $data = $this->http()->post('/checkouts', [
+                    'reference' => $this->reference($payment),
+                    'amount' => $intent->money->toDecimalString(),
+                    'currency' => $intent->money->currency->value,
+                    'return_url' => $intent->urls->returnUrl,
+                ])->json();
 
                 return new ChargeResult(
                     status: PaymentStatus::Pending,
-                    redirectUrl: 'https://gateway.example.com/pay',
+                    externalId: $data['id'],
+                    redirectUrl: $data['checkout_url'],
                 );
             }
 
-            public function query(Payment \$payment): ChargeResult
+            public function complete(Payment $payment, Request $request): ChargeResult
             {
-                // TODO: Implement query logic
-                // 1. Call the gateway API to check payment status
-                // 2. Return a ChargeResult with the current status
+                // The buyer is back on the commit URL. Never trust the request: ask the API.
+                return $this->query($payment);
+            }
+
+            public function query(Payment $payment): ChargeResult
+            {
+                $data = $this->http(retry: true)->get('/checkouts/'.$payment->external_id)->json();
 
                 return new ChargeResult(
-                    status: \$payment->status,
-                    externalId: \$payment->external_id,
+                    status: match ($data['status']) {
+                        'paid' => PaymentStatus::Paid,
+                        'rejected' => PaymentStatus::Failed,
+                        default => PaymentStatus::Pending,
+                    },
+                    // The reported reference and amount are checked against the payment before it changes.
+                    reference: $data['reference'],
+                    amount: Money::fromDecimal($data['amount'], $data['currency']),
+                    raw: $data,
                 );
             }
 
             protected function baseUrl(): string
             {
-                return \$this->isSandbox()
+                return $this->isSandbox()
                     ? 'https://sandbox.example.com/api'
                     : 'https://api.example.com';
             }
         }
 
         PHP;
+
+        return strtr($stub, ['{{studly}}' => $studly, '{{lower}}' => $lower]);
     }
 }

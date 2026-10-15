@@ -1,51 +1,60 @@
 <?php
 
-use Arca\PaymentGateways\Contracts\PaymentGateway;
-use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Events\WebhookReceived;
-use Arca\PaymentGateways\Support\PaymentManager;
-use Arca\PaymentGateways\ValueObjects\ChargeResult;
+use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
+use Arca\PaymentGateways\Facades\PaymentGateways;
+use Arca\PaymentGateways\Support\Testing\FakeDriver;
+use Arca\PaymentGateways\ValueObjects\Money;
+use Arca\PaymentGateways\ValueObjects\WebhookResult;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 
-it('dispatches WebhookReceived event for valid webhook', function () {
-    Event::fake();
+it('updates the payment from a verified notification', function () {
+    Event::fake([WebhookReceived::class]);
+    PaymentGateways::fake('flow');
+    $payment = PaymentGateways::create('flow', Money::CLP(1000));
 
-    $manager = app(PaymentManager::class);
-    $manager->fake('flow');
+    $this->postJson(route('payments.webhook', 'flow'), ['payment' => $payment->uuid])
+        ->assertOk()
+        ->assertJson(['message' => 'ok']);
 
-    $this->post(route('payments.webhook', 'flow'), ['token' => 'test-token'])
-        ->assertOk();
-
-    Event::assertDispatched(WebhookReceived::class, function ($event) {
-        return $event->gateway === 'flow';
-    });
+    expect($payment->fresh()->isPaid())->toBeTrue();
+    Event::assertDispatched(WebhookReceived::class, fn ($e) => $e->gateway === 'flow');
 });
 
-it('returns 404 for gateway without webhook support', function () {
-    $manager = app(PaymentManager::class);
+it('answers 2xx for notifications about unknown payments', function () {
+    PaymentGateways::fake('flow');
 
-    $manager->extend('no-webhook', fn () => new class implements PaymentGateway
+    $this->postJson(route('payments.webhook', 'flow'), ['payment' => 'nope'])
+        ->assertOk()
+        ->assertJson(['message' => 'ignored']);
+});
+
+it('refuses notifications with an invalid signature', function () {
+    PaymentGateways::fake('flow')->rejectWebhooks();
+
+    $this->postJson(route('payments.webhook', 'flow'))->assertUnauthorized();
+});
+
+it('answers 404 for unknown gateways and gateways without webhooks', function () {
+    $this->postJson(route('payments.webhook', 'unknown'))->assertNotFound();
+    $this->postJson(route('payments.webhook', 'niubiz'))->assertNotFound();
+});
+
+it('answers 500 when the gateway API is down, so the gateway retries', function () {
+    PaymentGateways::extend('flow', fn () => new class('flow') extends FakeDriver
     {
-        public function name(): string
+        public function handleWebhook(Request $request): ?WebhookResult
         {
-            return 'no-webhook';
-        }
-
-        public function charge($p, $i): ChargeResult
-        {
-            return new ChargeResult(
-                status: PaymentStatus::Paid,
-            );
-        }
-
-        public function query($p): ChargeResult
-        {
-            return new ChargeResult(
-                status: PaymentStatus::Pending,
-            );
+            throw new GatewayCommunicationException('down', 'flow');
         }
     });
 
-    $this->post(route('payments.webhook', 'no-webhook'))
-        ->assertNotFound();
+    $this->postJson(route('payments.webhook', 'flow'))->assertStatus(500);
+});
+
+it('does not need a csrf token', function () {
+    PaymentGateways::fake('flow');
+
+    $this->post(route('payments.webhook', 'flow'))->assertOk();
 });

@@ -2,248 +2,259 @@
 
 namespace Arca\PaymentGateways\Drivers\Webpay;
 
-use Arca\PaymentGateways\Contracts\PaymentGateway;
-use Arca\PaymentGateways\Contracts\SupportsWebhooks;
+use Arca\PaymentGateways\Contracts\SupportsRefunds;
 use Arca\PaymentGateways\Drivers\AbstractDriver;
+use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\Enums\PaymentStatus;
-use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
+use Arca\PaymentGateways\Exceptions\GatewayException;
+use Arca\PaymentGateways\Exceptions\PaymentVerificationException;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
+use Arca\PaymentGateways\ValueObjects\Money;
+use Arca\PaymentGateways\ValueObjects\RefundResult;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Lang;
+use Throwable;
+use Transbank\Contracts\RequestService;
+use Transbank\Webpay\Options;
 use Transbank\Webpay\WebpayPlus;
+use Transbank\Webpay\WebpayPlus\Exceptions\TransactionCommitException;
+use Transbank\Webpay\WebpayPlus\Responses\TransactionCommitResponse;
+use Transbank\Webpay\WebpayPlus\Responses\TransactionStatusResponse;
 use Transbank\Webpay\WebpayPlus\Transaction;
 
-class WebpayDriver extends AbstractDriver implements PaymentGateway, SupportsWebhooks
+/**
+ * Transbank Webpay Plus (CLP). Needs transbank/transbank-sdk ^5.0.
+ */
+class WebpayDriver extends AbstractDriver implements SupportsRefunds
 {
-    protected const array RESPONSE_CODES = [
-        '0' => 'Transacción aprobada',
-        '-1' => 'Rechazo de transacción',
-        '-2' => 'Transacción debe reintentarse',
-        '-3' => 'Error en transacción',
-        '-4' => 'Rechazo de transacción',
-        '-5' => 'Rechazo por error de tasa',
-        '-6' => 'Excede cupo máximo mensual',
-        '-7' => 'Excede límite diario por transacción',
-        '-8' => 'Rubro no autorizado',
-    ];
-
-    protected const array PAYMENT_TYPE_CODES = [
-        'VD' => 'Venta Débito',
-        'VN' => 'Venta Normal',
-        'VC' => 'Venta en cuotas',
-        'SI' => '3 cuotas sin interés',
-        'S2' => '2 cuotas sin interés',
-        'NC' => 'N Cuotas sin interés',
-        'VP' => 'Venta Prepago',
-    ];
-
-    public function __construct(array $config)
-    {
-        parent::__construct($config);
-        $this->configureTransbank();
-    }
+    protected ?RequestService $requestService = null;
 
     public function name(): string
     {
         return 'webpay';
     }
 
+    /**
+     * Webpay's buy order: up to 26 characters, unique per commerce code.
+     */
+    public function reference(Payment $payment): string
+    {
+        return (string) $payment->id;
+    }
+
+    /**
+     * Replaces the SDK's HTTP layer (tests).
+     */
+    public function usingRequestService(RequestService $requestService): static
+    {
+        $this->requestService = $requestService;
+
+        return $this;
+    }
+
     public function charge(Payment $payment, ChargeIntent $intent): ChargeResult
     {
+        if ($intent->money->currency !== Currency::CLP) {
+            throw new GatewayException(
+                message: "Webpay only charges CLP, payment [{$payment->uuid}] is in {$intent->money->currency->value}.",
+                gateway: $this->name(),
+            );
+        }
+
         try {
-            $transaction = new Transaction;
-            $response = $transaction->create(
-                (string) $payment->id,
-                session()->getId(),
+            $response = $this->transaction()->create(
+                $this->reference($payment),
+                str_replace('-', '', $payment->uuid),
                 $intent->money->amount,
                 $intent->urls->returnUrl,
             );
+        } catch (Throwable $e) {
+            throw $this->communicationError($e, 'Create transaction');
+        }
 
-            $token = $response->getToken();
-            $url = $response->getUrl();
+        return new ChargeResult(
+            status: PaymentStatus::Pending,
+            externalId: (string) $response->getToken(),
+            redirectUrl: $response->getUrl().'?token_ws='.$response->getToken(),
+        );
+    }
 
-            if (empty($token)) {
-                return new ChargeResult(
-                    status: PaymentStatus::Failed,
-                    message: 'No se obtuvo token de Webpay',
+    /**
+     * Webpay posts or redirects the buyer back with one of four parameter sets:
+     * token_ws (paid or rejected), TBK_TOKEN (aborted), TBK_ORDEN_COMPRA alone (timeout)
+     * or all of them (error in the payment form).
+     */
+    public function complete(Payment $payment, Request $request): ChargeResult
+    {
+        $tokenWs = (string) $request->input('token_ws', '');
+        $tbkToken = (string) $request->input('TBK_TOKEN', '');
+        $buyOrder = (string) $request->input('TBK_ORDEN_COMPRA', '');
+
+        foreach ([$tokenWs, $tbkToken] as $token) {
+            if ($token !== '' && $token !== $payment->external_id) {
+                throw new PaymentVerificationException(
+                    message: "Webpay token does not belong to payment [{$payment->uuid}].",
+                    gateway: $this->name(),
                 );
             }
+        }
 
-            $payment->external_id = $token;
-            $payment->save();
-
-            return new ChargeResult(
-                status: PaymentStatus::Pending,
-                externalId: $token,
-                redirectUrl: $url.'?token_ws='.$token,
-            );
-        } catch (\Throwable $e) {
-            $this->logError('Charge failed', ['error' => $e->getMessage()]);
-
-            throw new GatewayCommunicationException(
-                message: $e->getMessage(),
+        if ($buyOrder !== '' && $buyOrder !== $this->reference($payment)) {
+            throw new PaymentVerificationException(
+                message: "Webpay buy order [{$buyOrder}] does not belong to payment [{$payment->uuid}].",
                 gateway: $this->name(),
-                previous: $e,
             );
         }
+
+        if ($tokenWs !== '' && $tbkToken === '') {
+            return $this->commit($payment);
+        }
+
+        $reason = match (true) {
+            $tokenWs !== '' => 'error',
+            $tbkToken !== '' => 'aborted',
+            $buyOrder !== '' => 'timeout',
+            default => null,
+        };
+
+        if ($reason === null) {
+            return $this->query($payment);
+        }
+
+        return new ChargeResult(
+            status: PaymentStatus::Failed,
+            message: __("payment-gateways::webpay.flow.{$reason}"),
+        );
     }
 
     public function query(Payment $payment): ChargeResult
     {
         try {
-            $response = (new Transaction)->status($payment->external_id);
-            $raw = json_decode(json_encode($response), true);
-
-            if ($response->isApproved()) {
-                return new ChargeResult(
-                    status: PaymentStatus::Paid,
-                    externalId: $payment->external_id,
-                    authorizationCode: (string) $response->authorizationCode,
-                    raw: $raw,
-                );
-            }
-
-            $responseCode = (string) ($raw['responseCode'] ?? '');
-
-            return new ChargeResult(
-                status: PaymentStatus::Failed,
-                externalId: $payment->external_id,
-                message: self::RESPONSE_CODES[$responseCode] ?? 'Error desconocido',
-                raw: $raw,
-            );
-        } catch (\Throwable $e) {
-            $this->logError('Query failed', ['error' => $e->getMessage()]);
-
-            throw new GatewayCommunicationException(
-                message: $e->getMessage(),
-                gateway: $this->name(),
-                previous: $e,
-            );
+            $response = $this->transaction()->status((string) $payment->external_id);
+        } catch (Throwable $e) {
+            throw $this->communicationError($e, 'Transaction status');
         }
+
+        return $this->mapResponse($response);
     }
 
-    public function commit(Request $request, Payment $payment): ChargeResult
+    public function refund(Payment $payment, ?Money $amount = null): RefundResult
     {
-        $flowStatus = $this->detectTransactionFlow($request);
-
-        if ($flowStatus === 'normal') {
-            return $this->commitNormal($request, $payment);
+        try {
+            $response = $this->transaction()->refund((string) $payment->external_id, ($amount ?? $payment->money())->amount);
+        } catch (Throwable $e) {
+            throw $this->communicationError($e, 'Refund');
         }
 
-        return $this->commitAbnormal($flowStatus, $payment);
-    }
-
-    protected function commitNormal(Request $request, Payment $payment): ChargeResult
-    {
-        $response = (new Transaction)->commit($request->input('token_ws'));
-        $raw = json_decode(json_encode($response), true);
-
-        if ($response->isApproved()) {
-            return new ChargeResult(
-                status: PaymentStatus::Paid,
-                externalId: $payment->external_id,
-                authorizationCode: (string) $response->authorizationCode,
-                raw: $raw,
-            );
-        }
-
-        $responseCode = (string) ($raw['responseCode'] ?? '');
-
-        return new ChargeResult(
-            status: PaymentStatus::Failed,
-            externalId: $payment->external_id,
-            message: self::RESPONSE_CODES[$responseCode] ?? 'Transacción rechazada',
-            raw: $raw,
+        return new RefundResult(
+            status: $response->success() ? PaymentStatus::Refunded : $payment->status,
+            refundId: $response->getAuthorizationCode(),
+            refundedAmount: $amount ?? $payment->money(),
+            message: $response->success() ? null : 'Refund '.$response->getType(),
+            raw: [
+                'type' => $response->getType(),
+                'response_code' => $response->getResponseCode(),
+                'nullified_amount' => $response->getNullifiedAmount(),
+                'balance' => $response->getBalance(),
+            ],
         );
     }
 
-    protected function commitAbnormal(string $flowStatus, Payment $payment): ChargeResult
+    /**
+     * Commits the transaction. A token already committed (page refreshed, notification raced)
+     * fails with an error: the status is then read instead.
+     */
+    protected function commit(Payment $payment): ChargeResult
     {
-        $messages = [
-            'user_aborted' => 'El usuario abortó el pago.',
-            'error_occurred' => 'Ocurrió un error en el formulario de pago.',
-            'timeout' => 'La transacción expiró por inactividad.',
-        ];
-
         try {
-            $response = (new Transaction)->status($payment->external_id);
-            $raw = json_decode(json_encode($response), true);
+            $response = $this->transaction()->commit((string) $payment->external_id);
+        } catch (TransactionCommitException $e) {
+            $this->logWarning('Commit failed, reading status instead', ['error' => $e->getMessage()]);
 
-            if ($response->isApproved()) {
-                return new ChargeResult(
-                    status: PaymentStatus::Paid,
-                    externalId: $payment->external_id,
-                    authorizationCode: (string) $response->authorizationCode,
-                    raw: $raw,
-                );
-            }
+            return $this->query($payment);
+        } catch (Throwable $e) {
+            throw $this->communicationError($e, 'Commit transaction');
+        }
 
-            return new ChargeResult(
-                status: PaymentStatus::Failed,
-                externalId: $payment->external_id,
-                message: $messages[$flowStatus] ?? 'Estado desconocido',
-                raw: $raw,
+        return $this->mapResponse($response);
+    }
+
+    protected function mapResponse(TransactionCommitResponse|TransactionStatusResponse $response): ChargeResult
+    {
+        $approved = $response->getResponseCode() === 0;
+
+        $status = match ($response->getStatus()) {
+            'AUTHORIZED', 'CAPTURED', 'PARTIALLY_NULLIFIED' => $approved ? PaymentStatus::Paid : PaymentStatus::Failed,
+            'NULLIFIED' => PaymentStatus::Refunded,
+            'REVERSED' => PaymentStatus::Reversed,
+            'INITIALIZED' => PaymentStatus::Pending,
+            default => PaymentStatus::Failed,
+        };
+
+        return new ChargeResult(
+            status: $status,
+            authorizationCode: $response->getAuthorizationCode(),
+            reference: $response->getBuyOrder(),
+            amount: $response->getAmount() !== null ? Money::CLP((int) $response->getAmount()) : null,
+            message: $status === PaymentStatus::Failed ? $this->responseMessage($response->getResponseCode()) : null,
+            raw: [
+                'status' => $response->getStatus(),
+                'response_code' => $response->getResponseCode(),
+                'amount' => $response->getAmount(),
+                'buy_order' => $response->getBuyOrder(),
+                'authorization_code' => $response->getAuthorizationCode(),
+                'payment_type_code' => $response->getPaymentTypeCode(),
+                'payment_type' => $this->paymentType($response->getPaymentTypeCode()),
+                'installments_number' => $response->getInstallmentsNumber(),
+                'installments_amount' => $response->getInstallmentsAmount(),
+                'card_number' => $response->getCardNumber(),
+                'accounting_date' => $response->getAccountingDate(),
+                'transaction_date' => $response->getTransactionDate(),
+            ],
+        );
+    }
+
+    protected function responseMessage(?int $code): string
+    {
+        $key = "payment-gateways::webpay.response_codes.{$code}";
+
+        return $code !== null && Lang::has($key) ? __($key) : __('payment-gateways::messages.unknown_error');
+    }
+
+    protected function paymentType(?string $code): ?string
+    {
+        $key = "payment-gateways::webpay.payment_types.{$code}";
+
+        return $code !== null && Lang::has($key) ? __($key) : $code;
+    }
+
+    protected function transaction(): Transaction
+    {
+        if ($this->isSandbox()) {
+            $options = new Options(
+                (string) (($this->config['api_key'] ?? null) ?: WebpayPlus::INTEGRATION_API_KEY),
+                (string) (($this->config['commerce_code'] ?? null) ?: WebpayPlus::INTEGRATION_COMMERCE_CODE),
+                Options::ENVIRONMENT_INTEGRATION,
+                (int) config('payment-gateways.http.timeout', 15),
             );
-        } catch (\Throwable $e) {
-            return new ChargeResult(
-                status: PaymentStatus::Failed,
-                externalId: $payment->external_id,
-                message: $messages[$flowStatus] ?? $e->getMessage(),
+        } else {
+            $this->requireConfig(['commerce_code', 'api_key']);
+
+            $options = new Options(
+                (string) $this->config['api_key'],
+                (string) $this->config['commerce_code'],
+                Options::ENVIRONMENT_PRODUCTION,
+                (int) config('payment-gateways.http.timeout', 15),
             );
         }
-    }
 
-    public function detectTransactionFlow(Request $request): string
-    {
-        $tokenWs = $request->input('token_ws');
-        $tbkToken = $request->input('TBK_TOKEN');
-        $ordenCompra = $request->input('TBK_ORDEN_COMPRA');
-        $idSesion = $request->input('TBK_ID_SESION');
-
-        if ($tokenWs && ! $ordenCompra && ! $idSesion && ! $tbkToken) {
-            return 'normal';
-        }
-
-        if ($tbkToken && $ordenCompra && $idSesion && ! $tokenWs) {
-            return 'user_aborted';
-        }
-
-        if ($tokenWs && $ordenCompra && $idSesion && $tbkToken) {
-            return 'error_occurred';
-        }
-
-        if ($ordenCompra && $idSesion && ! $tokenWs && ! $tbkToken) {
-            return 'timeout';
-        }
-
-        return 'unknown';
-    }
-
-    public function verifyWebhook(Request $request): bool
-    {
-        return $request->has('token_ws') || $request->has('TBK_TOKEN');
-    }
-
-    public function handleWebhook(Request $request): void
-    {
-        // Webpay uses return URL flow, not server-to-server webhooks
+        return new Transaction($options, $this->requestService);
     }
 
     protected function baseUrl(): string
     {
-        return '';
-    }
-
-    protected function configureTransbank(): void
-    {
-        if ($this->isSandbox()) {
-            WebpayPlus::configureForTesting();
-        } else {
-            WebpayPlus::configureForProduction(
-                $this->config['commerce_code'],
-                $this->config['api_key'],
-            );
-        }
+        return $this->isSandbox() ? Options::BASE_URL_INTEGRATION : Options::BASE_URL_PRODUCTION;
     }
 }

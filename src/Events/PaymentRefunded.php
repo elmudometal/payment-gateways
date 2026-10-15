@@ -3,10 +3,11 @@
 namespace Arca\PaymentGateways\Events;
 
 use Arca\PaymentGateways\Models\Payment;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class PaymentRefunded
+class PaymentRefunded implements ShouldDispatchAfterCommit
 {
     use Dispatchable, SerializesModels;
 

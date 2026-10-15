@@ -1,140 +1,162 @@
 <?php
 
-use Arca\PaymentGateways\Drivers\MercadoPago\MercadoPagoDriver;
-use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\Enums\PaymentStatus;
-use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
+use Arca\PaymentGateways\Facades\PaymentGateways;
 use Arca\PaymentGateways\Models\Payment;
-use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\Customer;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\ReturnUrls;
-use Illuminate\Http\Request;
+use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\URL;
 
-beforeEach(function () {
-    $this->driver = new MercadoPagoDriver([
-        'environment' => 'sandbox',
-        'access_token' => 'TEST-fake-access-token',
-    ]);
-});
+const MP = 'https://api.mercadopago.com';
 
-it('has correct name', function () {
-    expect($this->driver->name())->toBe('mercadopago');
-});
+function mpPayment(array $overrides = []): array
+{
+    return $overrides + [
+        'id' => 1234567890,
+        'status' => 'approved',
+        'status_detail' => 'accredited',
+        'external_reference' => 'set-me',
+        'transaction_amount' => 15000,
+        'currency_id' => 'CLP',
+        'payment_method_id' => 'visa',
+        'payment_type_id' => 'credit_card',
+        'authorization_code' => '301299',
+        'payer' => ['email' => 'buyer@example.com'],
+    ];
+}
 
-it('creates a preference and returns redirect to sandbox', function () {
-    Http::fake([
-        'api.mercadopago.com/checkout/preferences' => Http::response([
-            'id' => 'PREF-123456',
-            'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=PREF-123456',
-            'sandbox_init_point' => 'https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=PREF-123456',
-        ]),
-    ]);
+function mpSignature(string $dataId, string $requestId, int $ts, string $secret = 'mp-secret'): string
+{
+    $hash = hash_hmac('sha256', "id:{$dataId};request-id:{$requestId};ts:{$ts};", $secret);
 
-    $payment = Payment::factory()->gateway('mercadopago')->create();
-    $intent = new ChargeIntent(
-        money: Money::fromDecimal(15000, Currency::CLP),
-        description: 'Compra de prueba',
-        urls: new ReturnUrls(
-            returnUrl: 'https://example.com/return',
-            cancelUrl: 'https://example.com/cancel',
-            webhookUrl: 'https://example.com/webhook',
-        ),
-        customer: new Customer(
-            email: 'comprador@example.com',
-            name: 'Juan Pérez',
-        ),
-    );
+    return "ts={$ts},v1={$hash}";
+}
 
-    $result = $this->driver->charge($payment, $intent);
+function startMpCheckout(int $amount = 15000): Payment
+{
+    Http::fake([MP.'/checkout/preferences' => Http::response(['id' => 'pref-1', 'init_point' => 'https://www.mercadopago.cl/checkout/v1/redirect?pref_id=pref-1'])]);
 
-    expect($result->status)->toBe(PaymentStatus::Pending)
-        ->and($result->externalId)->toBe('PREF-123456')
-        ->and($result->requiresRedirect())->toBeTrue()
-        ->and($result->redirectUrl)->toContain('sandbox.mercadopago.com.ar');
+    $payment = PaymentGateways::create('mercadopago', Money::CLP($amount), 'Order #1', customer: new Customer(email: 'buyer@example.com'));
+    test()->get($payment->checkoutUrl())->assertRedirect('https://www.mercadopago.cl/checkout/v1/redirect?pref_id=pref-1');
 
-    expect($payment->fresh()->external_id)->toBe('PREF-123456');
+    return $payment->refresh();
+}
 
-    Http::assertSent(function ($request) {
-        return str_contains($request->url(), '/checkout/preferences')
-            && $request['items'][0]['title'] === 'Compra de prueba'
+it('creates a preference with the payment reference', function () {
+    $payment = startMpCheckout();
+
+    expect($payment->external_id)->toBe('pref-1');
+
+    Http::assertSent(function (HttpRequest $request) use ($payment) {
+        return $request->url() === MP.'/checkout/preferences'
+            && $request->hasHeader('Authorization', 'Bearer TEST-token')
+            && $request->hasHeader('X-Idempotency-Key', 'preference-'.$payment->uuid)
+            && $request['external_reference'] === $payment->uuid
             && $request['items'][0]['unit_price'] === 15000.0
-            && $request['payer']['email'] === 'comprador@example.com'
-            && $request['external_reference'] === Payment::first()->uuid
-            && $request['auto_return'] === 'approved';
+            && $request['items'][0]['currency_id'] === 'CLP'
+            && $request['payer']['email'] === 'buyer@example.com'
+            && $request['back_urls']['success'] === route('payments.commit', $payment);
     });
 });
 
-it('queries payment by external reference', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/search*' => Http::response([
-            'results' => [
-                [
-                    'id' => 77788899,
-                    'status' => 'approved',
-                    'status_detail' => 'accredited',
-                    'external_reference' => 'some-uuid',
-                ],
-            ],
-            'paging' => ['total' => 1],
-        ]),
-    ]);
+it('leaves auto_return and notification_url out on a local host', function () {
+    startMpCheckout();
 
-    $payment = Payment::factory()->gateway('mercadopago')->create([
-        'external_id' => 'PREF-123456',
-    ]);
-
-    $result = $this->driver->query($payment);
-
-    expect($result->status)->toBe(PaymentStatus::Paid)
-        ->and($result->authorizationCode)->toBe('77788899')
-        ->and($result->message)->toBe('accredited');
+    Http::assertSent(fn (HttpRequest $request) => ! isset($request['auto_return']) && ! isset($request['notification_url']));
 });
 
-it('returns pending when no payments found in search', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/search*' => Http::response([
-            'results' => [],
-            'paging' => ['total' => 0],
-        ]),
-    ]);
+it('sends auto_return and notification_url on a public https host', function () {
+    URL::forceRootUrl('https://shop.cl');
+    URL::forceScheme('https');
 
-    $payment = Payment::factory()->gateway('mercadopago')->create([
-        'external_id' => 'PREF-123456',
-    ]);
+    startMpCheckout();
 
-    $result = $this->driver->query($payment);
-
-    expect($result->status)->toBe(PaymentStatus::Pending);
+    Http::assertSent(fn (HttpRequest $request) => $request['auto_return'] === 'approved'
+        && $request['notification_url'] === 'https://shop.cl/payments/webhooks/mercadopago?source_news=webhooks');
 });
 
-it('gets a specific payment by ID', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/77788899' => Http::response([
-            'id' => 77788899,
-            'status' => 'approved',
-            'status_detail' => 'accredited',
-            'external_reference' => 'some-uuid',
-        ]),
-    ]);
+it('approves the payment when the buyer comes back', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => $payment->uuid]))]);
 
-    $result = $this->driver->getPayment(77788899);
+    $this->get(route('payments.commit', $payment).'?payment_id=1234567890&status=approved')
+        ->assertRedirect(route('payments.success', $payment));
 
-    expect($result->status)->toBe(PaymentStatus::Paid)
-        ->and($result->authorizationCode)->toBe('77788899');
+    $payment->refresh();
+    expect($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->transaction_id)->toBe('1234567890')
+        ->and($payment->authorization_code)->toBe('301299')
+        ->and($payment->voucher())->not->toHaveKey('payer')
+        ->and($payment->voucher()['payment_method_id'])->toBe('visa');
 });
 
-it('maps MercadoPago status to payment status', function (string $mpStatus, PaymentStatus $expected) {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/1' => Http::response([
-            'id' => 1,
-            'status' => $mpStatus,
-            'external_reference' => 'test',
-        ]),
-    ]);
+it('never trusts the status in the query string', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => $payment->uuid, 'status' => 'rejected', 'status_detail' => 'cc_rejected_insufficient_amount']))]);
 
-    expect($this->driver->getPayment(1)->status)->toBe($expected);
+    $this->get(route('payments.commit', $payment).'?payment_id=1234567890&status=approved')
+        ->assertRedirect(route('payments.failed', $payment));
+
+    expect($payment->fresh()->failureMessage())->toBe(__('payment-gateways::mercadopago.cc_rejected_insufficient_amount'));
+});
+
+it('refuses a payment of another order', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => 'someone-else']))]);
+
+    $this->get(route('payments.commit', $payment).'?payment_id=1234567890')->assertStatus(502);
+
+    expect($payment->fresh()->isPending())->toBeTrue();
+});
+
+it('refuses a payment approved for less', function () {
+    $payment = startMpCheckout(15000);
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => $payment->uuid, 'transaction_amount' => 10]))]);
+
+    $this->get(route('payments.commit', $payment).'?payment_id=1234567890')->assertStatus(502);
+
+    expect($payment->fresh()->isPending())->toBeTrue();
+});
+
+it('keeps cash payments pending', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => $payment->uuid, 'status' => 'pending', 'status_detail' => 'pending_waiting_payment']))]);
+
+    $this->get(route('payments.commit', $payment).'?payment_id=1234567890')
+        ->assertRedirect(route('payments.pending', $payment));
+
+    // Back to the checkout URL: no new preference, the buyer already has a ticket.
+    $this->get($payment->checkoutUrl())->assertRedirect(route('payments.pending', $payment));
+});
+
+it('fails the payment when the buyer leaves without paying', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/search*' => Http::response(['results' => []])]);
+
+    $this->get(route('payments.commit', $payment).'?payment_id=null&status=null')
+        ->assertRedirect(route('payments.failed', $payment));
+});
+
+it('picks the approved attempt when searching payments', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/search*' => Http::response(['results' => [
+        mpPayment(['id' => 2, 'status' => 'rejected', 'external_reference' => $payment->uuid]),
+        mpPayment(['id' => 1, 'status' => 'approved', 'external_reference' => $payment->uuid]),
+    ]])]);
+
+    PaymentGateways::sync($payment);
+
+    expect($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->transaction_id)->toBe('1');
+    Http::assertSent(fn (HttpRequest $r) => str_contains($r->url(), 'external_reference='.$payment->uuid));
+});
+
+it('maps Mercado Pago statuses', function (string $mpStatus, PaymentStatus $expected) {
+    Http::fake([MP.'/v1/payments/1' => Http::response(mpPayment(['id' => 1, 'status' => $mpStatus]))]);
+
+    expect(PaymentGateways::driver('mercadopago')->getPayment(1)->status)->toBe($expected);
 })->with([
     ['approved', PaymentStatus::Paid],
     ['authorized', PaymentStatus::Authorized],
@@ -147,178 +169,87 @@ it('maps MercadoPago status to payment status', function (string $mpStatus, Paym
     ['charged_back', PaymentStatus::Reversed],
 ]);
 
-it('refunds a payment fully', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/77788899/refunds' => Http::response([
-            'id' => 99001122,
-            'status' => 'approved',
-            'amount' => 15000,
-        ]),
-    ]);
+it('processes a signed webhook', function () {
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => $payment->uuid]))]);
+    $ts = now()->getTimestamp();
 
-    $payment = Payment::factory()->gateway('mercadopago')->paid()->create([
-        'authorization_code' => '77788899',
-        'metadata' => ['mp_payment_id' => '77788899'],
-    ]);
-
-    $result = $this->driver->refund($payment);
-
-    expect($result->isRefunded())->toBeTrue()
-        ->and($result->refundId)->toBe('99001122');
-});
-
-it('refunds a payment partially', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/77788899/refunds' => Http::response([
-            'id' => 99001123,
-            'status' => 'approved',
-            'amount' => 5000,
-        ]),
-    ]);
-
-    $payment = Payment::factory()->gateway('mercadopago')->paid()->create([
-        'authorization_code' => '77788899',
-        'metadata' => ['mp_payment_id' => '77788899'],
-    ]);
-
-    $partialAmount = Money::fromDecimal(5000, Currency::CLP);
-    $result = $this->driver->refund($payment, $partialAmount);
-
-    expect($result->isRefunded())->toBeTrue()
-        ->and($result->refundedAmount)->toBe($partialAmount);
-
-    Http::assertSent(function ($request) {
-        return str_contains($request->url(), '/refunds')
-            && $request['amount'] === 5000.0;
-    });
-});
-
-it('returns error when no payment ID for refund', function () {
-    $payment = Payment::factory()->gateway('mercadopago')->paid()->create([
-        'authorization_code' => null,
-        'metadata' => [],
-    ]);
-
-    $result = $this->driver->refund($payment);
-
-    expect($result->isRefunded())->toBeFalse()
-        ->and($result->message)->toContain('No MercadoPago payment ID');
-});
-
-it('throws on API failure during charge', function () {
-    Http::fake([
-        'api.mercadopago.com/checkout/preferences' => Http::response('Unauthorized', 401),
-    ]);
-
-    $payment = Payment::factory()->gateway('mercadopago')->create();
-    $intent = new ChargeIntent(
-        money: Money::fromDecimal(1000, Currency::CLP),
-        description: 'Test',
-        urls: new ReturnUrls(returnUrl: 'https://example.com'),
-        customer: new Customer(email: 'test@example.com'),
-    );
-
-    $this->driver->charge($payment, $intent);
-})->throws(GatewayCommunicationException::class);
-
-it('verifies webhook with data.id format', function () {
-    $request = Request::create('/webhook', 'POST', [
-        'data' => ['id' => '12345'],
+    $this->withHeaders([
+        'x-signature' => mpSignature('1234567890', 'req-1', $ts),
+        'x-request-id' => 'req-1',
+    ])->postJson(route('payments.webhook', 'mercadopago').'?data.id=1234567890&type=payment', [
         'type' => 'payment',
-    ]);
+        'data' => ['id' => '1234567890'],
+    ])->assertOk()->assertJson(['message' => 'ok']);
 
-    expect($this->driver->verifyWebhook($request))->toBeTrue();
+    expect($payment->fresh()->isPaid())->toBeTrue();
 });
 
-it('verifies webhook with IPN format', function () {
-    $request = Request::create('/webhook', 'POST', [
-        'topic' => 'payment',
-        'id' => '12345',
-    ]);
+it('refuses a webhook with a wrong signature', function () {
+    $this->withHeaders([
+        'x-signature' => mpSignature('1234567890', 'req-1', now()->getTimestamp(), 'wrong-secret'),
+        'x-request-id' => 'req-1',
+    ])->postJson(route('payments.webhook', 'mercadopago').'?data.id=1234567890&type=payment')
+        ->assertUnauthorized();
 
-    expect($this->driver->verifyWebhook($request))->toBeTrue();
+    Http::assertNothingSent();
 });
 
-it('rejects invalid webhook', function () {
-    $request = Request::create('/webhook', 'POST', [
-        'random' => 'data',
-    ]);
+it('refuses old signatures when a tolerance is configured', function () {
+    config()->set('payment-gateways.gateways.mercadopago.webhook_tolerance', 300);
+    $ts = now()->subHour()->getTimestamp();
 
-    expect($this->driver->verifyWebhook($request))->toBeFalse();
+    $this->withHeaders([
+        'x-signature' => mpSignature('1234567890', 'req-1', $ts),
+        'x-request-id' => 'req-1',
+    ])->postJson(route('payments.webhook', 'mercadopago').'?data.id=1234567890&type=payment')
+        ->assertUnauthorized();
 });
 
-it('handles webhook and updates payment', function () {
-    $payment = Payment::factory()->gateway('mercadopago')->create();
+it('requires the webhook secret in production', function () {
+    config()->set('payment-gateways.gateways.mercadopago.environment', 'production');
+    config()->set('payment-gateways.gateways.mercadopago.webhook_secret', null);
 
-    Http::fake([
-        'api.mercadopago.com/v1/payments/12345' => Http::response([
-            'id' => 12345,
-            'status' => 'approved',
-            'status_detail' => 'accredited',
-            'external_reference' => $payment->uuid,
-        ]),
-    ]);
-
-    $request = Request::create('/webhook', 'POST', [
-        'data' => ['id' => '12345'],
-        'type' => 'payment',
-    ]);
-
-    $this->driver->handleWebhook($request);
-
-    $payment->refresh();
-    expect($payment->status)->toBe(PaymentStatus::Paid)
-        ->and($payment->paid_at)->not->toBeNull()
-        ->and($payment->metadata['mp_payment_id'])->toBe('12345');
+    $this->postJson(route('payments.webhook', 'mercadopago').'?data.id=1234567890&type=payment')
+        ->assertUnauthorized();
 });
 
-it('ignores webhook for non-payment topics', function () {
-    $request = Request::create('/webhook', 'POST', [
-        'data' => ['id' => '12345'],
-        'type' => 'merchant_order',
-    ]);
+it('accepts unsigned webhooks in sandbox without a secret', function () {
+    config()->set('payment-gateways.gateways.mercadopago.webhook_secret', null);
+    $payment = startMpCheckout();
+    Http::fake([MP.'/v1/payments/1234567890' => Http::response(mpPayment(['external_reference' => $payment->uuid]))]);
 
-    $this->driver->handleWebhook($request);
+    $this->postJson(route('payments.webhook', 'mercadopago').'?data.id=1234567890&type=payment')->assertOk();
 
-    // No exception, no action
-    expect(true)->toBeTrue();
+    expect($payment->fresh()->isPaid())->toBeTrue();
 });
 
-it('processes return URL with payment_id', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/12345' => Http::response([
-            'id' => 12345,
-            'status' => 'approved',
-            'status_detail' => 'accredited',
-            'external_reference' => 'some-uuid',
-        ]),
-    ]);
+it('ignores other notification topics', function () {
+    $ts = now()->getTimestamp();
 
-    $payment = Payment::factory()->gateway('mercadopago')->create();
+    $this->withHeaders(['x-signature' => mpSignature('99', 'req-1', $ts), 'x-request-id' => 'req-1'])
+        ->postJson(route('payments.webhook', 'mercadopago').'?data.id=99&type=merchant_order')
+        ->assertOk()
+        ->assertJson(['message' => 'ignored']);
 
-    $request = Request::create('/return', 'GET', [
-        'payment_id' => '12345',
-        'status' => 'approved',
-        'external_reference' => $payment->uuid,
-    ]);
-
-    $result = $this->driver->processReturn($request, $payment);
-
-    expect($result->status)->toBe(PaymentStatus::Paid)
-        ->and($payment->fresh()->metadata['mp_payment_id'])->toBe('12345');
+    Http::assertNothingSent();
 });
 
-it('processes return URL without payment_id using status param', function () {
-    $payment = Payment::factory()->gateway('mercadopago')->create([
-        'external_id' => 'PREF-123',
+it('refunds fully and partially with idempotency keys', function () {
+    $payment = Payment::factory()->gateway('mercadopago')->paid()->create([
+        'amount' => 15000,
+        'transaction_id' => '1234567890',
     ]);
+    Http::fake([MP.'/v1/payments/1234567890/refunds' => Http::sequence()
+        ->push(['id' => 1, 'status' => 'approved', 'amount' => 5000], 201)
+        ->push(['id' => 2, 'status' => 'approved', 'amount' => 10000], 201)]);
 
-    $request = Request::create('/return', 'GET', [
-        'status' => 'rejected',
-        'external_reference' => $payment->uuid,
-    ]);
+    PaymentGateways::refund($payment, Money::CLP(5000));
+    expect($payment->isPaid())->toBeTrue();
 
-    $result = $this->driver->processReturn($request, $payment);
+    PaymentGateways::refund($payment);
+    expect($payment->isRefunded())->toBeTrue();
 
-    expect($result->status)->toBe(PaymentStatus::Failed);
+    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-0") && $r['amount'] === 5000.0);
+    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-1") && $r->data() === []);
 });

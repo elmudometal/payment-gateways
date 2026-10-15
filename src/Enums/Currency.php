@@ -4,19 +4,24 @@ namespace Arca\PaymentGateways\Enums;
 
 enum Currency: string
 {
-    case CLP = 'CLP';
-    case USD = 'USD';
-    case PEN = 'PEN';
-    case BRL = 'BRL';
     case ARS = 'ARS';
-    case MXN = 'MXN';
+    case BRL = 'BRL';
+    case CLP = 'CLP';
     case COP = 'COP';
     case EUR = 'EUR';
+    case MXN = 'MXN';
+    case PEN = 'PEN';
+    case PYG = 'PYG';
+    case USD = 'USD';
+    case UYU = 'UYU';
 
+    /**
+     * Number of decimals of the currency (ISO 4217 minor unit).
+     */
     public function minorUnit(): int
     {
         return match ($this) {
-            self::CLP => 0,
+            self::CLP, self::PYG => 0,
             default => 2,
         };
     }

@@ -3,20 +3,10 @@
 namespace Arca\PaymentGateways\Tests;
 
 use Arca\PaymentGateways\PaymentGatewaysServiceProvider;
-use Illuminate\Database\Eloquent\Factories\Factory;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 class TestCase extends Orchestra
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        Factory::guessFactoryNamesUsing(
-            fn (string $modelName) => 'Arca\\PaymentGateways\\Database\\Factories\\'.class_basename($modelName).'Factory'
-        );
-    }
-
     protected function getPackageProviders($app): array
     {
         return [
@@ -26,12 +16,14 @@ class TestCase extends Orchestra
 
     protected function defineDatabaseMigrations(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        (include __DIR__.'/../database/migrations/create_payments_table.php.stub')->up();
     }
 
     protected function getEnvironmentSetUp($app): void
     {
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('a', 32)));
+        $app['config']->set('app.url', 'https://shop.example.com');
+        $app['config']->set('cache.default', 'array');
         $app['config']->set('database.default', 'testing');
         $app['config']->set('database.connections.testing', [
             'driver' => 'sqlite',
@@ -40,43 +32,19 @@ class TestCase extends Orchestra
         ]);
 
         $app['config']->set('payment-gateways.default', 'webpay');
-        $app['config']->set('payment-gateways.gateways.webpay', [
-            'driver' => 'webpay',
-            'environment' => 'sandbox',
-            'commerce_code' => 'test-code',
-            'api_key' => 'test-key',
-        ]);
-        $app['config']->set('payment-gateways.gateways.getnet', [
-            'driver' => 'getnet',
-            'environment' => 'sandbox',
-            'login' => 'test-login',
-            'tran_key' => 'test-key',
-        ]);
-        $app['config']->set('payment-gateways.gateways.paypal', [
-            'driver' => 'paypal',
-            'environment' => 'sandbox',
-            'client_id' => 'test-client',
-            'client_secret' => 'test-secret',
-            'currency' => 'USD',
-        ]);
-        $app['config']->set('payment-gateways.gateways.flow', [
-            'driver' => 'flow',
-            'environment' => 'sandbox',
-            'api_key' => 'test-api-key',
-            'secret_key' => 'test-secret-key',
-        ]);
-        $app['config']->set('payment-gateways.gateways.niubiz', [
-            'driver' => 'niubiz',
-            'environment' => 'sandbox',
-            'merchant_id' => 'test-merchant',
-            'user' => 'test-user',
-            'password' => 'test-pass',
-            'currency' => 'PEN',
-        ]);
-        $app['config']->set('payment-gateways.gateways.mercadopago', [
-            'driver' => 'mercadopago',
-            'environment' => 'sandbox',
-            'access_token' => 'TEST-fake-access-token',
-        ]);
+        $app['config']->set('payment-gateways.http.retries', 0);
+
+        $gateways = [
+            'webpay' => ['environment' => 'sandbox'],
+            'getnet' => ['environment' => 'sandbox', 'login' => 'test-login', 'tran_key' => 'test-tran-key'],
+            'paypal' => ['environment' => 'sandbox', 'client_id' => 'test-client', 'client_secret' => 'test-secret', 'webhook_id' => 'WH-TEST'],
+            'flow' => ['environment' => 'sandbox', 'api_key' => 'test-api-key', 'secret_key' => 'test-secret-key'],
+            'niubiz' => ['environment' => 'sandbox', 'merchant_id' => '456879852', 'user' => 'test-user', 'password' => 'test-pass'],
+            'mercadopago' => ['environment' => 'sandbox', 'access_token' => 'TEST-token', 'webhook_secret' => 'mp-secret'],
+        ];
+
+        foreach ($gateways as $name => $config) {
+            $app['config']->set("payment-gateways.gateways.{$name}", ['driver' => $name] + $config);
+        }
     }
 }

@@ -3,55 +3,36 @@
 use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\ValueObjects\Money;
 
-it('creates CLP money with zero minor units', function () {
-    $money = Money::CLP(50000);
-
-    expect($money->amount)->toBe(50000)
-        ->and($money->currency)->toBe(Currency::CLP)
-        ->and($money->toDecimal())->toBe(50000.0);
+it('keeps amounts in the minor unit', function () {
+    expect(Money::CLP(15000)->toDecimal())->toBe(15000.0)
+        ->and(Money::USD(1999)->toDecimal())->toBe(19.99)
+        ->and(Money::PEN(1050)->toDecimalString())->toBe('10.50')
+        ->and(Money::CLP(15000)->toDecimalString())->toBe('15000');
 });
 
-it('creates USD money in cents', function () {
-    $money = Money::USD(1999);
+it('builds money from gateway decimals', function (mixed $decimal, Currency|string $currency, int $amount) {
+    expect(Money::fromDecimal($decimal, $currency)->amount)->toBe($amount);
+})->with([
+    [15000, Currency::CLP, 15000],
+    [15000.0, Currency::CLP, 15000],
+    ['150.50', Currency::USD, 15050],
+    [0.1 + 0.2, Currency::USD, 30],
+    ['19.99', 'PEN', 1999],
+]);
 
-    expect($money->amount)->toBe(1999)
-        ->and($money->currency)->toBe(Currency::USD)
-        ->and($money->toDecimal())->toBe(19.99);
+it('compares amounts in the same currency', function () {
+    expect(Money::CLP(100)->equals(Money::CLP(100)))->toBeTrue()
+        ->and(Money::CLP(100)->equals(Money::of(100, 'USD')))->toBeFalse()
+        ->and(Money::CLP(99)->isLessThan(Money::CLP(100)))->toBeTrue()
+        ->and(Money::CLP(100)->isLessThan(Money::CLP(100)))->toBeFalse()
+        ->and(Money::of(1, 'USD')->isLessThan(Money::CLP(100)))->toBeFalse();
 });
 
-it('creates PEN money in cents', function () {
-    $money = Money::PEN(3500);
-
-    expect($money->amount)->toBe(3500)
-        ->and($money->toDecimal())->toBe(35.0);
+it('formats for people', function () {
+    expect(Money::CLP(1500000)->format())->toBe('1.500.000 CLP')
+        ->and(Money::USD(123456)->format())->toBe('1.234,56 USD');
 });
 
-it('creates from decimal correctly', function () {
-    $money = Money::fromDecimal(19.99, Currency::USD);
-
-    expect($money->amount)->toBe(1999)
-        ->and($money->toDecimal())->toBe(19.99);
-});
-
-it('creates from decimal for CLP (zero minor units)', function () {
-    $money = Money::fromDecimal(50000, Currency::CLP);
-
-    expect($money->amount)->toBe(50000);
-});
-
-it('compares equality correctly', function () {
-    $a = Money::CLP(1000);
-    $b = Money::CLP(1000);
-    $c = Money::CLP(2000);
-    $d = Money::USD(1000);
-
-    expect($a->equals($b))->toBeTrue()
-        ->and($a->equals($c))->toBeFalse()
-        ->and($a->equals($d))->toBeFalse();
-});
-
-it('rounds correctly when creating from decimal', function () {
-    $money = Money::fromDecimal(19.995, Currency::USD);
-
-    expect($money->amount)->toBe(2000);
-});
+it('refuses negative amounts', function () {
+    Money::CLP(-1);
+})->throws(InvalidArgumentException::class);

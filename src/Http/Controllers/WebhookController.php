@@ -2,39 +2,55 @@
 
 namespace Arca\PaymentGateways\Http\Controllers;
 
-use Arca\PaymentGateways\Contracts\SupportsWebhooks;
-use Arca\PaymentGateways\Events\WebhookReceived;
+use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
+use Arca\PaymentGateways\Exceptions\GatewayConfigurationException;
 use Arca\PaymentGateways\Exceptions\InvalidWebhookSignatureException;
-use Arca\PaymentGateways\Support\PaymentManager;
+use Arca\PaymentGateways\Exceptions\PaymentVerificationException;
+use Arca\PaymentGateways\Exceptions\UnsupportedFeatureException;
+use Arca\PaymentGateways\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
 
 class WebhookController extends Controller
 {
     public function __construct(
-        protected readonly PaymentManager $manager,
+        protected readonly PaymentService $payments,
     ) {}
 
+    /**
+     * Answers 2xx once the notification is handled or can never be (so the gateway stops retrying),
+     * and 5xx when the gateway API could not be reached (so it retries later).
+     */
     public function handle(string $gateway, Request $request): JsonResponse
     {
-        $driver = $this->manager->driver($gateway);
+        try {
+            $payment = $this->payments->handleWebhook($gateway, $request);
+        } catch (GatewayConfigurationException|UnsupportedFeatureException) {
+            return response()->json(['message' => 'not found'], 404);
+        } catch (InvalidWebhookSignatureException $e) {
+            $this->log('warning', $gateway, $e->getMessage());
 
-        if (! $driver instanceof SupportsWebhooks) {
-            return response()->json(['error' => 'Webhooks not supported'], 404);
+            return response()->json(['message' => 'invalid signature'], 401);
+        } catch (PaymentVerificationException $e) {
+            $this->log('error', $gateway, $e->getMessage(), $e->context);
+
+            return response()->json(['message' => 'ignored']);
+        } catch (GatewayCommunicationException $e) {
+            $this->log('error', $gateway, $e->getMessage(), $e->context);
+
+            return response()->json(['message' => 'error'], 500);
         }
 
-        if (! $driver->verifyWebhook($request)) {
-            throw new InvalidWebhookSignatureException(
-                message: 'Invalid webhook signature',
-                gateway: $gateway,
-            );
-        }
+        return response()->json(['message' => $payment ? 'ok' : 'ignored']);
+    }
 
-        WebhookReceived::dispatch($gateway, $request->all());
-
-        $driver->handleWebhook($request);
-
-        return response()->json(['message' => 'ok']);
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    protected function log(string $level, string $gateway, string $message, array $context = []): void
+    {
+        Log::channel(config('payment-gateways.log_channel'))->{$level}("[payment-gateways:{$gateway}] Webhook: {$message}", $context);
     }
 }

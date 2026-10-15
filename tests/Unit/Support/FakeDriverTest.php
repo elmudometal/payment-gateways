@@ -1,64 +1,46 @@
 <?php
 
 use Arca\PaymentGateways\Enums\PaymentStatus;
-use Arca\PaymentGateways\Models\Payment;
-use Arca\PaymentGateways\Support\Testing\FakeDriver;
-use Arca\PaymentGateways\ValueObjects\ChargeIntent;
+use Arca\PaymentGateways\Facades\PaymentGateways;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\ReturnUrls;
 
-it('records charges and allows assertions', function () {
-    $fake = new FakeDriver;
-    $payment = Payment::factory()->create();
-    $intent = new ChargeIntent(
-        money: Money::CLP(1000),
-        description: 'Test',
-        urls: new ReturnUrls(returnUrl: 'https://example.com'),
-    );
+it('fakes a whole checkout through the facade', function () {
+    $fake = PaymentGateways::fake('webpay');
 
-    $result = $fake->charge($payment, $intent);
+    $payment = PaymentGateways::create('webpay', Money::CLP(5000), 'Order 1');
+    $result = PaymentGateways::charge($payment);
 
-    expect($result->isApproved())->toBeTrue();
-    $fake->assertCharged(1);
+    expect($result->redirectUrl)->toBe('https://checkout.fake/'.$payment->uuid);
+
+    $this->get(route('payments.commit', $payment))->assertRedirect(route('payments.success', $payment));
+
+    $fake->assertCharged()->assertCompleted();
+    expect($payment->fresh()->status)->toBe(PaymentStatus::Paid);
 });
 
-it('allows custom charge response', function () {
-    $fake = new FakeDriver;
-    $fake->respondWith(new ChargeResult(
-        status: PaymentStatus::Failed,
-        message: 'Declined',
-    ));
+it('answers what the test asks for', function () {
+    $fake = PaymentGateways::fake('webpay')
+        ->completeWith(new ChargeResult(status: PaymentStatus::Failed, message: 'Card declined'));
 
-    $payment = Payment::factory()->create();
-    $intent = new ChargeIntent(
-        money: Money::CLP(1000),
-        description: 'Test',
-        urls: new ReturnUrls(returnUrl: 'https://example.com'),
-    );
+    $payment = PaymentGateways::create('webpay', Money::CLP(5000));
+    PaymentGateways::charge($payment);
 
-    $result = $fake->charge($payment, $intent);
+    $this->get(route('payments.commit', $payment))->assertRedirect(route('payments.failed', $payment));
 
-    expect($result->isApproved())->toBeFalse()
-        ->and($result->message)->toBe('Declined');
+    expect($payment->fresh()->failureMessage())->toBe('Card declined');
+    $fake->assertCharged();
 });
 
 it('records refunds', function () {
-    $fake = new FakeDriver;
-    $payment = Payment::factory()->paid()->create();
+    $fake = PaymentGateways::fake('webpay');
 
-    $result = $fake->refund($payment);
+    $payment = PaymentGateways::create('webpay', Money::CLP(5000));
+    PaymentGateways::charge($payment);
+    PaymentGateways::complete($payment, request());
 
-    expect($result->isRefunded())->toBeTrue();
-    $fake->assertRefunded(1);
-});
+    PaymentGateways::refund($payment);
 
-it('asserts not charged', function () {
-    $fake = new FakeDriver;
-
-    $fake->assertNotCharged();
-});
-
-it('has a name', function () {
-    expect((new FakeDriver)->name())->toBe('fake');
+    $fake->assertRefunded();
+    expect($payment->status)->toBe(PaymentStatus::Refunded);
 });

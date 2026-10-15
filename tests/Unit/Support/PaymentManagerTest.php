@@ -1,69 +1,52 @@
 <?php
 
 use Arca\PaymentGateways\Contracts\PaymentGateway;
-use Arca\PaymentGateways\Enums\PaymentStatus;
+use Arca\PaymentGateways\Drivers\MercadoPago\MercadoPagoDriver;
+use Arca\PaymentGateways\Drivers\Webpay\WebpayDriver;
 use Arca\PaymentGateways\Exceptions\GatewayConfigurationException;
 use Arca\PaymentGateways\Support\PaymentManager;
 use Arca\PaymentGateways\Support\Testing\FakeDriver;
-use Arca\PaymentGateways\ValueObjects\ChargeResult;
 
-it('resolves the default driver', function () {
-    $manager = app(PaymentManager::class);
-
-    expect($manager->getDefaultDriver())->toBe('webpay');
+it('resolves the default gateway', function () {
+    expect(app(PaymentManager::class)->driver())->toBeInstanceOf(WebpayDriver::class);
 });
 
-it('throws on unconfigured gateway', function () {
-    config()->set('payment-gateways.gateways.unknown', null);
+it('throws for a gateway missing from the config', function () {
+    app(PaymentManager::class)->driver('unknown');
+})->throws(GatewayConfigurationException::class, 'Gateway [unknown] is not configured.');
 
-    $manager = app(PaymentManager::class);
-    $manager->driver('unknown');
-})->throws(GatewayConfigurationException::class);
+it('throws for an unknown driver', function () {
+    config()->set('payment-gateways.gateways.shop', ['driver' => 'nope']);
 
-it('allows extending with custom drivers', function () {
-    $manager = app(PaymentManager::class);
+    app(PaymentManager::class)->driver('shop');
+})->throws(GatewayConfigurationException::class, 'Driver [nope]');
 
-    $custom = new class implements PaymentGateway
-    {
-        public function name(): string
-        {
-            return 'custom';
-        }
+it('serves several accounts with one driver', function () {
+    config()->set('payment-gateways.gateways.mp_peru', ['driver' => 'mercadopago', 'access_token' => 'PE-token']);
 
-        public function charge($payment, $intent): ChargeResult
-        {
-            return new ChargeResult(
-                status: PaymentStatus::Paid,
-            );
-        }
-
-        public function query($payment): ChargeResult
-        {
-            return new ChargeResult(
-                status: PaymentStatus::Pending,
-            );
-        }
-    };
-
-    $manager->extend('custom', fn () => $custom);
-
-    expect($manager->driver('custom'))->toBe($custom)
-        ->and($manager->driver('custom')->name())->toBe('custom');
+    expect(app(PaymentManager::class)->driver('mp_peru'))->toBeInstanceOf(MercadoPagoDriver::class);
 });
 
-it('creates a fake driver', function () {
-    $manager = app(PaymentManager::class);
+it('passes the gateway config to custom drivers', function () {
+    config()->set('payment-gateways.gateways.custom', ['driver' => 'custom', 'key' => 'secret']);
+    $received = null;
 
-    $fake = $manager->fake();
+    app(PaymentManager::class)->extend('custom', function ($app, array $config) use (&$received) {
+        $received = $config;
 
-    expect($fake)->toBeInstanceOf(FakeDriver::class)
-        ->and($manager->driver())->toBe($fake);
+        return new FakeDriver('custom');
+    });
+
+    expect(app(PaymentManager::class)->driver('custom'))->toBeInstanceOf(PaymentGateway::class)
+        ->and($received['key'])->toBe('secret');
 });
 
-it('creates a fake for a specific driver', function () {
+it('replaces an already resolved driver with a fake', function () {
     $manager = app(PaymentManager::class);
+    $manager->driver('webpay');
 
-    $fake = $manager->fake('paypal');
+    $fake = $manager->fake('webpay');
 
-    expect($manager->driver('paypal'))->toBe($fake);
+    expect($manager->driver('webpay'))->toBe($fake)
+        ->and($fake->name())->toBe('webpay');
 });

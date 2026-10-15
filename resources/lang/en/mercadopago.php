@@ -1,0 +1,30 @@
+<?php
+
+// Messages for the status_detail of a Mercado Pago payment.
+return [
+    'pending_contingency' => 'We are processing the payment.',
+    'pending_review_manual' => 'The payment is under review.',
+    'pending_waiting_payment' => 'Waiting for the payment to be made.',
+    'pending_waiting_transfer' => 'Waiting for the bank transfer.',
+    'cc_rejected_bad_filled_card_number' => 'Check the card number.',
+    'cc_rejected_bad_filled_date' => 'Check the expiration date.',
+    'cc_rejected_bad_filled_other' => 'Check the card details.',
+    'cc_rejected_bad_filled_security_code' => 'Check the card security code.',
+    'cc_rejected_blacklist' => 'We could not process your payment.',
+    'cc_rejected_call_for_authorize' => 'You must authorize the payment with your card issuer.',
+    'cc_rejected_card_disabled' => 'You must activate your card with the issuer.',
+    'cc_rejected_card_error' => 'We could not process your payment.',
+    'cc_rejected_duplicated_payment' => 'You already made a payment for this amount.',
+    'cc_rejected_high_risk' => 'Your payment was rejected by fraud prevention.',
+    'cc_rejected_insufficient_amount' => 'Your card has insufficient funds.',
+    'cc_rejected_invalid_installments' => 'Your card does not accept that number of installments.',
+    'cc_rejected_max_attempts' => 'You reached the maximum number of attempts.',
+    'cc_rejected_other_reason' => 'The card issuer did not process the payment.',
+    'cc_amount_rate_limit_exceeded' => 'You exceeded the available limit of your payment method.',
+    'rejected_high_risk' => 'Your payment was rejected by fraud prevention.',
+    'rejected_by_bank' => 'The bank rejected the operation.',
+    'rejected_insufficient_data' => 'Required data is missing to process the payment.',
+    'expired' => 'The payment expired.',
+    'by_collector' => 'Payment cancelled by the merchant.',
+    'by_payer' => 'Payment cancelled by the buyer.',
+];

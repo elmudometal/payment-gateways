@@ -2,19 +2,24 @@
 
 use Arca\PaymentGateways\Http\Controllers\CheckoutController;
 use Arca\PaymentGateways\Http\Controllers\WebhookController;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
 
-$prefix = config('payment-gateways.routes.prefix', 'payments');
-$middleware = config('payment-gateways.routes.middleware', ['web']);
-$webhookPrefix = config('payment-gateways.webhook.route_prefix', 'payments/webhooks');
+Route::middleware(config('payment-gateways.routes.middleware', ['web']))
+    ->prefix(config('payment-gateways.routes.prefix', 'payments'))
+    ->group(function () {
+        Route::get('{payment}', [CheckoutController::class, 'show'])->name('payments.show');
+        // Gateways (Flow, Niubiz, Webpay on abort) post the buyer back from their own domain.
+        Route::match(['get', 'post'], '{payment}/commit', [CheckoutController::class, 'commit'])
+            ->withoutMiddleware(ValidateCsrfToken::class)
+            ->name('payments.commit');
+        Route::get('{payment}/success', [CheckoutController::class, 'success'])->name('payments.success');
+        Route::get('{payment}/pending', [CheckoutController::class, 'pending'])->name('payments.pending');
+        Route::get('{payment}/failed', [CheckoutController::class, 'failed'])->name('payments.failed');
+    });
 
-Route::middleware($middleware)->prefix($prefix)->group(function () {
-    Route::get('{payment}', [CheckoutController::class, 'show'])->name('payments.show');
-    Route::match(['get', 'post'], '{payment}/commit', [CheckoutController::class, 'commit'])->name('payments.commit');
-    Route::get('{payment}/success', [CheckoutController::class, 'success'])->name('payments.success');
-    Route::get('{payment}/failed', [CheckoutController::class, 'failed'])->name('payments.failed');
-});
-
-Route::prefix($webhookPrefix)->group(function () {
-    Route::match(['get', 'post'], '{gateway}', [WebhookController::class, 'handle'])->name('payments.webhook');
-});
+Route::middleware(config('payment-gateways.webhook.middleware', []))
+    ->prefix(config('payment-gateways.webhook.prefix', 'payments/webhooks'))
+    ->group(function () {
+        Route::match(['get', 'post'], '{gateway}', [WebhookController::class, 'handle'])->name('payments.webhook');
+    });

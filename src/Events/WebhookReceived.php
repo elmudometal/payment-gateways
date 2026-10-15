@@ -3,11 +3,13 @@
 namespace Arca\PaymentGateways\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
-use Illuminate\Queue\SerializesModels;
 
+/**
+ * Dispatched for every notification whose signature was verified, before it is processed.
+ */
 class WebhookReceived
 {
-    use Dispatchable, SerializesModels;
+    use Dispatchable;
 
     /**
      * @param  array<string, mixed>  $payload

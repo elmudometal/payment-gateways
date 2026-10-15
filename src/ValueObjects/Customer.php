@@ -15,4 +15,30 @@ final readonly class Customer
     {
         return new self(ip: request()->ip());
     }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public static function fromArray(array $data): self
+    {
+        return new self(
+            name: $data['name'] ?? null,
+            email: $data['email'] ?? null,
+            phone: $data['phone'] ?? null,
+            ip: $data['ip'] ?? null,
+        );
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function toArray(): array
+    {
+        return array_filter([
+            'name' => $this->name,
+            'email' => $this->email,
+            'phone' => $this->phone,
+            'ip' => $this->ip,
+        ], fn (?string $value): bool => $value !== null && $value !== '');
+    }
 }

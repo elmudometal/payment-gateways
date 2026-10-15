@@ -1,0 +1,27 @@
+<?php
+
+return [
+    'status' => [
+        'pending' => 'Pendiente',
+        'authorized' => 'Autorizado',
+        'paid' => 'Pagado',
+        'failed' => 'Rechazado',
+        'refunded' => 'Reembolsado',
+        'reversed' => 'Reversado',
+    ],
+    'success_title' => 'Pago exitoso',
+    'pending_title' => 'Pago pendiente',
+    'pending_text' => 'Estamos esperando la confirmación del medio de pago. Te avisaremos cuando se acredite.',
+    'pending_refresh' => 'Volver a consultar',
+    'failed_title' => 'Pago rechazado',
+    'redirecting' => 'Te estamos llevando al formulario de pago…',
+    'amount' => 'Monto',
+    'authorization_code' => 'Código de autorización',
+    'reference' => 'Orden',
+    'reason' => 'Motivo',
+    'description' => 'Descripción',
+    'retry' => 'Intentar nuevamente',
+    'gateway_error' => 'No pudimos comunicarnos con el medio de pago. Inténtalo nuevamente en unos minutos.',
+    'cancelled' => 'Cancelaste el pago.',
+    'unknown_error' => 'El medio de pago rechazó la transacción.',
+];

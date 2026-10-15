@@ -1,140 +1,237 @@
 <?php
 
-use Arca\PaymentGateways\Contracts\PaymentGateway;
 use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Events\PaymentApproved;
 use Arca\PaymentGateways\Events\PaymentInitiated;
 use Arca\PaymentGateways\Events\PaymentRefunded;
 use Arca\PaymentGateways\Events\PaymentRejected;
+use Arca\PaymentGateways\Events\PaymentStatusChanged;
+use Arca\PaymentGateways\Exceptions\GatewayConfigurationException;
+use Arca\PaymentGateways\Exceptions\GatewayException;
+use Arca\PaymentGateways\Exceptions\InvalidWebhookSignatureException;
+use Arca\PaymentGateways\Exceptions\PaymentVerificationException;
 use Arca\PaymentGateways\Exceptions\UnsupportedFeatureException;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\Services\PaymentService;
-use Arca\PaymentGateways\Support\PaymentManager;
-use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
+use Arca\PaymentGateways\ValueObjects\Customer;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\ReturnUrls;
+use Arca\PaymentGateways\ValueObjects\RefundResult;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function () {
     $this->service = app(PaymentService::class);
-    $this->manager = app(PaymentManager::class);
+    $this->fake = $this->service->fake('webpay');
 });
 
-it('creates a payment record', function () {
-    $intent = new ChargeIntent(
-        money: Money::CLP(50000),
-        description: 'Test payment',
-        urls: new ReturnUrls(returnUrl: 'https://example.com/return'),
+function pendingPayment(int $amount = 15000): Payment
+{
+    $payment = app(PaymentService::class)->create('webpay', Money::CLP($amount), 'Order #1');
+    app(PaymentService::class)->charge($payment);
+
+    return $payment;
+}
+
+it('creates a pending payment', function () {
+    $payment = $this->service->create(
+        gateway: 'webpay',
+        money: Money::CLP(15000),
+        description: 'Order #1',
+        customer: new Customer(name: 'Ana', email: 'ana@example.com'),
+        metadata: ['order_id' => 1],
     );
 
-    $payment = $this->service->create('webpay', $intent);
-
-    expect($payment)->toBeInstanceOf(Payment::class)
-        ->and($payment->exists)->toBeTrue()
-        ->and($payment->gateway)->toBe('webpay')
-        ->and($payment->amount)->toBe(50000)
-        ->and($payment->currency)->toBe(Currency::CLP)
-        ->and($payment->description)->toBe('Test payment')
+    expect($payment->exists)->toBeTrue()
+        ->and($payment->uuid)->toBeUuid()
         ->and($payment->status)->toBe(PaymentStatus::Pending)
-        ->and($payment->uuid)->not->toBeEmpty();
+        ->and($payment->money()->equals(Money::CLP(15000)))->toBeTrue()
+        ->and($payment->customer()?->email)->toBe('ana@example.com')
+        ->and($payment->metadata['order_id'])->toBe(1)
+        ->and($payment->checkoutUrl())->toEndWith('/payments/'.$payment->uuid);
 });
 
-it('charges a payment and dispatches events', function () {
-    Event::fake();
+it('refuses gateways that are not configured', function () {
+    $this->service->create('unknown', Money::CLP(1000));
+})->throws(GatewayConfigurationException::class);
 
-    $fake = $this->manager->fake('webpay');
+it('charges with the package urls and stores the checkout id', function () {
+    Event::fake([PaymentInitiated::class]);
 
-    $intent = new ChargeIntent(
-        money: Money::CLP(50000),
-        description: 'Test',
-        urls: new ReturnUrls(returnUrl: 'https://example.com/return'),
-    );
+    $payment = pendingPayment();
 
-    $payment = $this->service->create('webpay', $intent);
-    $result = $this->service->charge($payment, $intent);
-
-    expect($result->isApproved())->toBeTrue()
-        ->and($payment->fresh()->status)->toBe(PaymentStatus::Paid)
-        ->and($payment->fresh()->paid_at)->not->toBeNull();
-
-    $fake->assertCharged(1);
-
+    expect($payment->external_id)->toBe('fake-'.$payment->uuid);
     Event::assertDispatched(PaymentInitiated::class);
-    Event::assertDispatched(PaymentApproved::class);
 });
 
-it('handles failed charge', function () {
-    Event::fake();
+it('does not charge a payment twice once settled', function () {
+    $payment = pendingPayment();
+    $this->service->complete($payment, new Request);
 
-    $fake = $this->manager->fake('webpay');
-    $fake->respondWith(new ChargeResult(
-        status: PaymentStatus::Failed,
-        message: 'Insufficient funds',
-    ));
+    $this->service->charge($payment);
+})->throws(GatewayException::class, 'cannot be charged again');
 
-    $intent = new ChargeIntent(
-        money: Money::CLP(50000),
-        description: 'Test',
-        urls: new ReturnUrls(returnUrl: 'https://example.com/return'),
-    );
+it('applies the result of the buyer coming back and dispatches events', function () {
+    Event::fake([PaymentStatusChanged::class, PaymentApproved::class]);
+    $payment = pendingPayment();
 
-    $payment = $this->service->create('webpay', $intent);
-    $result = $this->service->charge($payment, $intent);
+    $this->service->complete($payment, new Request);
 
-    expect($result->isApproved())->toBeFalse()
-        ->and($payment->fresh()->status)->toBe(PaymentStatus::Failed);
+    expect($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->paid_at)->not->toBeNull()
+        ->and($payment->transaction_id)->toBe('fake-transaction-id')
+        ->and($payment->authorization_code)->toBe('fake-auth-code');
 
-    Event::assertDispatched(PaymentRejected::class);
-    Event::assertNotDispatched(PaymentApproved::class);
+    Event::assertDispatched(PaymentStatusChanged::class, fn ($e) => $e->from === PaymentStatus::Pending && $e->to === PaymentStatus::Paid);
+    Event::assertDispatched(PaymentApproved::class, 1);
 });
 
-it('queries payment status', function () {
-    $fake = $this->manager->fake('webpay');
+it('does not call the gateway again for a settled payment', function () {
+    $payment = pendingPayment();
+    $this->service->complete($payment, new Request);
+    $this->service->complete($payment, new Request);
 
-    $payment = Payment::factory()->gateway('webpay')->create();
-    $result = $this->service->query($payment);
-
-    expect($result->isApproved())->toBeTrue();
-    $fake->assertQueried(1);
+    $this->fake->assertCompleted(1);
 });
 
-it('refunds a payment', function () {
-    Event::fake();
+it('rejects a result for another reference', function () {
+    $payment = pendingPayment();
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Paid, reference: 'another-order'));
 
-    $fake = $this->manager->fake('webpay');
+    expect(fn () => $this->service->complete($payment, new Request))
+        ->toThrow(PaymentVerificationException::class, 'Reference mismatch');
 
-    $payment = Payment::factory()->gateway('webpay')->paid()->create();
+    expect($payment->fresh()->status)->toBe(PaymentStatus::Pending);
+});
+
+it('rejects a payment approved for less than its amount', function () {
+    $payment = pendingPayment(15000);
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Paid, reference: $payment->uuid, amount: Money::CLP(1000)));
+
+    expect(fn () => $this->service->complete($payment, new Request))
+        ->toThrow(PaymentVerificationException::class, 'Amount mismatch');
+
+    expect($payment->fresh()->isPending())->toBeTrue();
+});
+
+it('rejects a payment approved in another currency', function () {
+    $payment = pendingPayment(15000);
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Paid, amount: Money::of(15000, Currency::USD)));
+
+    $this->service->complete($payment, new Request);
+})->throws(PaymentVerificationException::class);
+
+it('accepts a matching reference and amount', function () {
+    $payment = pendingPayment(15000);
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Paid, reference: $payment->uuid, amount: Money::CLP(15000)));
+
+    $this->service->complete($payment, new Request);
+
+    expect($payment->isPaid())->toBeTrue();
+});
+
+it('ignores out of order notifications for a paid payment', function () {
+    Event::fake([PaymentRejected::class]);
+    $payment = pendingPayment();
+    $this->service->complete($payment, new Request);
+    $voucher = $payment->voucher();
+
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Failed, raw: ['stale' => true]));
+    $changed = $this->service->apply($payment, $this->fake->query($payment));
+
+    expect($changed)->toBeFalse()
+        ->and($payment->fresh()->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->fresh()->voucher())->toBe($voucher);
+    Event::assertNotDispatched(PaymentRejected::class);
+});
+
+it('lets a rejected payment be approved later', function () {
+    $payment = pendingPayment();
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Failed, message: 'Declined'));
+    $this->service->complete($payment, new Request);
+
+    expect($payment->isFailed())->toBeTrue()
+        ->and($payment->failureMessage())->toBe('Declined');
+
+    $this->service->apply($payment, new ChargeResult(status: PaymentStatus::Paid));
+
+    expect($payment->isPaid())->toBeTrue();
+});
+
+it('syncs the status from the gateway', function () {
+    $payment = pendingPayment();
+
+    $this->service->sync($payment);
+
+    $this->fake->assertQueried();
+    expect($payment->isPaid())->toBeTrue();
+});
+
+it('handles verified webhooks', function () {
+    $payment = pendingPayment();
+
+    $updated = $this->service->handleWebhook('webpay', Request::create('/', 'POST', ['payment' => $payment->uuid]));
+
+    expect($updated?->is($payment))->toBeTrue()
+        ->and($payment->fresh()->isPaid())->toBeTrue();
+});
+
+it('refuses webhooks with an invalid signature', function () {
+    $this->fake->rejectWebhooks();
+
+    $this->service->handleWebhook('webpay', Request::create('/', 'POST'));
+})->throws(InvalidWebhookSignatureException::class);
+
+it('refuses webhooks for a payment of another gateway', function () {
+    $payment = pendingPayment();
+    $this->service->fake('flow');
+
+    $this->service->handleWebhook('flow', Request::create('/', 'POST', ['payment' => $payment->uuid]));
+})->throws(PaymentVerificationException::class);
+
+it('refunds partially and then fully', function () {
+    Event::fake([PaymentRefunded::class]);
+    $payment = pendingPayment(10000);
+    $this->service->complete($payment, new Request);
+
+    $this->service->refund($payment, Money::CLP(4000));
+
+    expect($payment->isPaid())->toBeTrue()
+        ->and($payment->metadata['refunds'])->toHaveCount(1);
+    Event::assertNotDispatched(PaymentRefunded::class);
+
+    $this->service->refund($payment, Money::CLP(6000));
+
+    expect($payment->isRefunded())->toBeTrue();
+    Event::assertDispatched(PaymentRefunded::class, 1);
+});
+
+it('refuses to refund more than what is left', function () {
+    $payment = pendingPayment(10000);
+    $this->service->complete($payment, new Request);
+    $this->service->refund($payment, Money::CLP(4000));
+
+    $this->service->refund($payment, Money::CLP(6001));
+})->throws(GatewayException::class, 'Invalid refund amount');
+
+it('only refunds paid payments', function () {
+    $this->service->refund(pendingPayment());
+})->throws(GatewayException::class, 'only paid payments');
+
+it('keeps the payment paid when the gateway refuses the refund', function () {
+    $payment = pendingPayment();
+    $this->service->complete($payment, new Request);
+    $this->fake->respondRefundWith(new RefundResult(status: PaymentStatus::Paid, message: 'Too late'));
+
     $result = $this->service->refund($payment);
 
-    expect($result->isRefunded())->toBeTrue()
-        ->and($payment->fresh()->status)->toBe(PaymentStatus::Refunded);
-
-    $fake->assertRefunded(1);
-    Event::assertDispatched(PaymentRefunded::class);
+    expect($result->isRefunded())->toBeFalse()
+        ->and($payment->fresh()->isPaid())->toBeTrue();
 });
 
-it('throws on unsupported refund', function () {
-    $this->manager->extend('no-refund', fn () => new class implements PaymentGateway
-    {
-        public function name(): string
-        {
-            return 'no-refund';
-        }
-
-        public function charge($p, $i): ChargeResult
-        {
-            return new ChargeResult(status: PaymentStatus::Paid);
-        }
-
-        public function query($p): ChargeResult
-        {
-            return new ChargeResult(status: PaymentStatus::Pending);
-        }
-    });
-
-    $payment = Payment::factory()->create(['gateway' => 'no-refund']);
+it('reports gateways without refunds', function () {
+    $payment = Payment::factory()->gateway('niubiz')->paid()->create();
 
     $this->service->refund($payment);
 })->throws(UnsupportedFeatureException::class);

@@ -1,115 +1,110 @@
 <?php
 
-use Arca\PaymentGateways\Drivers\Niubiz\NiubizDriver;
 use Arca\PaymentGateways\Enums\PaymentStatus;
-use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
+use Arca\PaymentGateways\Facades\PaymentGateways;
 use Arca\PaymentGateways\Models\Payment;
-use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\ReturnUrls;
+use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
 
-beforeEach(function () {
-    $this->driver = new NiubizDriver([
-        'environment' => 'sandbox',
-        'merchant_id' => 'test-merchant',
-        'user' => 'test-user',
-        'password' => 'test-pass',
-        'currency' => 'PEN',
-    ]);
-});
+const NIUBIZ = 'https://apisandbox.vnforappstest.com';
 
-it('has correct name', function () {
-    expect($this->driver->name())->toBe('niubiz');
-});
+function niubizAuthorization(Payment $payment, array $overrides = []): array
+{
+    return [
+        'header' => ['ecoreTransactionUUID' => 'abc'],
+        'order' => $overrides + [
+            'purchaseNumber' => (string) $payment->id,
+            'amount' => 150.5,
+            'currency' => 'PEN',
+            'authorizationCode' => '173424',
+            'actionCode' => '000',
+            'transactionId' => '993242311341',
+        ],
+        'dataMap' => [
+            'ACTION_CODE' => $overrides['actionCode'] ?? '000',
+            'STATUS' => 'Authorized',
+            'AUTHORIZATION_CODE' => '173424',
+            'TRANSACTION_ID' => '993242311341',
+            'CARD' => '455170******8059',
+            'BRAND' => 'visa',
+        ],
+    ];
+}
 
-it('charges and returns session token', function () {
+function startNiubizCheckout(): Payment
+{
     Http::fake([
-        'apisandbox.vnforappstest.com/api.security/v1/security' => Http::response('access-token-123'),
-        'apisandbox.vnforappstest.com/api.ecommerce/v2/ecommerce/token/session/*' => Http::response([
-            'sessionKey' => 'session-token-456',
-        ]),
+        NIUBIZ.'/api.security/v1/security' => Http::response('access-token'),
+        NIUBIZ.'/api.ecommerce/v2/ecommerce/token/session/*' => Http::response(['sessionKey' => 'session-key', 'expirationTime' => 1]),
     ]);
 
-    $payment = Payment::factory()->gateway('niubiz')->create();
-    $intent = new ChargeIntent(
-        money: Money::PEN(5000),
-        description: 'Test Niubiz',
-        urls: new ReturnUrls(returnUrl: 'https://example.com/return'),
-    );
+    $payment = PaymentGateways::create('niubiz', Money::PEN(15050), 'Order #1');
 
-    $result = $this->driver->charge($payment, $intent);
+    test()->get($payment->checkoutUrl())
+        ->assertOk()
+        ->assertSee('data-sessiontoken="session-key"', false)
+        ->assertSee('data-purchasenumber="'.$payment->id.'"', false)
+        ->assertSee('data-amount="150.50"', false)
+        ->assertSee('action="'.route('payments.commit', $payment).'"', false);
 
-    expect($result->status)->toBe(PaymentStatus::Pending)
-        ->and($result->externalId)->toBe('session-token-456')
-        ->and($result->raw)->toHaveKey('sessionToken')
-        ->and($result->raw)->toHaveKey('merchantId')
-        ->and($result->raw)->toHaveKey('jsUrl');
+    return $payment->refresh();
+}
 
-    expect($payment->fresh()->external_id)->toBe('session-token-456');
+it('renders the Niubiz form with a session token', function () {
+    $payment = startNiubizCheckout();
+
+    expect($payment->external_id)->toBe('session-key');
+
+    Http::assertSent(fn (HttpRequest $r) => str_ends_with($r->url(), '/token/session/456879852')
+        && $r->hasHeader('Authorization', 'access-token')
+        && $r['amount'] === 150.5);
 });
 
-it('authorizes a successful transaction', function () {
-    Http::fake([
-        'apisandbox.vnforappstest.com/api.security/v1/security' => Http::response('access-token-123'),
-        'apisandbox.vnforappstest.com/api.authorization/v3/authorization/ecommerce/*' => Http::response([
-            'dataMap' => [
-                'ACTION_CODE' => '000',
-                'AUTHORIZATION_CODE' => 'AUTH-789',
-            ],
-            'order' => [
-                'actionCode' => '000',
-                'authorizationCode' => 'AUTH-789',
-            ],
-        ]),
-    ]);
+it('authorizes the transaction token posted by the form', function () {
+    $payment = startNiubizCheckout();
+    Http::fake([NIUBIZ.'/api.authorization/v3/authorization/ecommerce/*' => Http::response(niubizAuthorization($payment))]);
 
-    $payment = Payment::factory()->gateway('niubiz')->create([
-        'external_id' => 'session-token-456',
-        'amount' => 5000,
-    ]);
+    $this->post(route('payments.commit', $payment), ['transactionToken' => 'tx-token', 'channel' => 'web'])
+        ->assertRedirect(route('payments.success', $payment));
 
-    $result = $this->driver->authorize('txn-token-xyz', $payment);
+    $payment->refresh();
+    expect($payment->status)->toBe(PaymentStatus::Paid)
+        ->and($payment->authorization_code)->toBe('173424')
+        ->and($payment->transaction_id)->toBe('993242311341');
 
-    expect($result->status)->toBe(PaymentStatus::Paid)
-        ->and($result->authorizationCode)->toBe('AUTH-789');
+    Http::assertSent(fn (HttpRequest $r) => str_contains($r->url(), '/authorization/ecommerce/456879852')
+        && $r['order']['tokenId'] === 'tx-token'
+        && $r['order']['purchaseNumber'] === (string) $payment->id
+        && $r['order']['currency'] === 'PEN');
 });
 
-it('handles declined authorization', function () {
-    Http::fake([
-        'apisandbox.vnforappstest.com/api.security/v1/security' => Http::response('access-token-123'),
-        'apisandbox.vnforappstest.com/api.authorization/v3/authorization/ecommerce/*' => Http::response([
-            'dataMap' => [
-                'ACTION_CODE' => '051',
-            ],
-            'order' => [
-                'actionCode' => '051',
-            ],
-        ]),
-    ]);
+it('rejects a declined card with its message', function () {
+    $payment = startNiubizCheckout();
+    Http::fake([NIUBIZ.'/api.authorization/v3/authorization/ecommerce/*' => Http::response([
+        'errorCode' => 400,
+        'errorMessage' => 'NOT AUTHORIZED',
+        'data' => ['ACTION_CODE' => '116', 'ACTION_DESCRIPTION' => 'Fondos insuficientes', 'STATUS' => 'Not Authorized'],
+    ], 400)]);
 
-    $payment = Payment::factory()->gateway('niubiz')->create([
-        'external_id' => 'session-token-456',
-        'amount' => 5000,
-    ]);
+    $this->post(route('payments.commit', $payment), ['transactionToken' => 'tx-token'])
+        ->assertRedirect(route('payments.failed', $payment));
 
-    $result = $this->driver->authorize('txn-token-xyz', $payment);
-
-    expect($result->status)->toBe(PaymentStatus::Failed)
-        ->and($result->message)->toBe('Fondos insuficientes');
+    expect($payment->fresh()->failureMessage())->toBe(__('payment-gateways::niubiz.action_codes.116'));
 });
 
-it('throws on security API failure', function () {
-    Http::fake([
-        'apisandbox.vnforappstest.com/api.security/v1/security' => Http::response('Unauthorized', 401),
-    ]);
+it('refuses an authorization for a lower amount', function () {
+    $payment = startNiubizCheckout();
+    Http::fake([NIUBIZ.'/api.authorization/v3/authorization/ecommerce/*' => Http::response(niubizAuthorization($payment, ['amount' => 1]))]);
 
-    $payment = Payment::factory()->gateway('niubiz')->create();
-    $intent = new ChargeIntent(
-        money: Money::PEN(1000),
-        description: 'Test',
-        urls: new ReturnUrls(returnUrl: 'https://example.com'),
-    );
+    $this->post(route('payments.commit', $payment), ['transactionToken' => 'tx-token'])->assertStatus(502);
 
-    $this->driver->charge($payment, $intent);
-})->throws(GatewayCommunicationException::class);
+    expect($payment->fresh()->isPending())->toBeTrue();
+});
+
+it('fails the payment when the form times out', function () {
+    $payment = startNiubizCheckout();
+
+    $this->get(route('payments.commit', $payment).'?cancelled=1')
+        ->assertRedirect(route('payments.failed', $payment));
+});

@@ -12,70 +12,72 @@ use Arca\PaymentGateways\Drivers\Webpay\WebpayDriver;
 use Arca\PaymentGateways\Exceptions\GatewayConfigurationException;
 use Arca\PaymentGateways\Support\Testing\FakeDriver;
 use Closure;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Manager;
 
 /**
+ * Resolves gateway drivers by name. Each name maps to `payment-gateways.gateways.{name}`; its
+ * `driver` key picks the implementation, so one driver can serve several configured accounts.
+ *
  * @method PaymentGateway driver(?string $driver = null)
  */
 class PaymentManager extends Manager
 {
+    /**
+     * @var array<string, class-string<PaymentGateway>>
+     */
+    protected array $builtIn = [
+        'webpay' => WebpayDriver::class,
+        'getnet' => GetnetDriver::class,
+        'paypal' => PaypalDriver::class,
+        'flow' => FlowDriver::class,
+        'niubiz' => NiubizDriver::class,
+        'mercadopago' => MercadoPagoDriver::class,
+    ];
+
     public function getDefaultDriver(): string
     {
-        return $this->config->get('payment-gateways.default', 'webpay');
-    }
-
-    public function createWebpayDriver(): WebpayDriver
-    {
-        return new WebpayDriver(
-            $this->gatewayConfig('webpay'),
-        );
-    }
-
-    public function createGetnetDriver(): GetnetDriver
-    {
-        return new GetnetDriver(
-            $this->gatewayConfig('getnet'),
-        );
-    }
-
-    public function createPaypalDriver(): PaypalDriver
-    {
-        return new PaypalDriver(
-            $this->gatewayConfig('paypal'),
-        );
-    }
-
-    public function createFlowDriver(): FlowDriver
-    {
-        return new FlowDriver(
-            $this->gatewayConfig('flow'),
-        );
-    }
-
-    public function createNiubizDriver(): NiubizDriver
-    {
-        return new NiubizDriver(
-            $this->gatewayConfig('niubiz'),
-        );
-    }
-
-    public function createMercadopagoDriver(): MercadoPagoDriver
-    {
-        return new MercadoPagoDriver(
-            $this->gatewayConfig('mercadopago'),
-        );
+        return (string) $this->config->get('payment-gateways.default', 'webpay');
     }
 
     /**
      * @param  string  $driver
      */
-    protected function createDriver($driver): mixed
+    protected function createDriver($driver): PaymentGateway
     {
-        if (! isset($this->customCreators[$driver]) && ! method_exists($this, 'create'.ucfirst($driver).'Driver')) {
-            $this->gatewayConfig($driver);
+        if (isset($this->customCreators[$driver])) {
+            return $this->callCustomCreator($driver);
         }
 
-        return parent::createDriver($driver);
+        $config = $this->gatewayConfig($driver);
+        $implementation = $config['driver'] ?? $driver;
+
+        if (isset($this->customCreators[$implementation])) {
+            return $this->customCreators[$implementation]($this->container, $config);
+        }
+
+        if (! isset($this->builtIn[$implementation])) {
+            throw new GatewayConfigurationException(
+                message: "Driver [{$implementation}] for gateway [{$driver}] is not supported.",
+                gateway: $driver,
+            );
+        }
+
+        $class = $this->builtIn[$implementation];
+
+        return new $class($config);
+    }
+
+    /**
+     * Custom creators receive the gateway config as second argument.
+     *
+     * @param  string  $driver
+     */
+    protected function callCustomCreator($driver): PaymentGateway
+    {
+        $config = $this->config->get("payment-gateways.gateways.{$driver}");
+
+        return $this->customCreators[$driver]($this->container, is_array($config) ? $config : []);
     }
 
     /**
@@ -95,24 +97,27 @@ class PaymentManager extends Manager
         return $config;
     }
 
+    /**
+     * Replaces a gateway (the default one when null) with a fake for tests.
+     */
     public function fake(?string $driver = null): FakeDriver
     {
-        $fake = new FakeDriver;
+        $driver ??= $this->getDefaultDriver();
+        $fake = new FakeDriver($driver);
 
-        if ($driver) {
-            $this->extend($driver, fn () => $fake);
-        } else {
-            $this->extend($this->getDefaultDriver(), fn () => $fake);
-        }
+        $this->extend($driver, fn () => $fake);
 
         return $fake;
     }
 
     /**
-     * @param  Closure(mixed, array<string, mixed>): PaymentGateway  $callback
+     * @param  string  $driver
+     * @param  Closure(Container, array<string, mixed>): PaymentGateway  $callback
      */
     public function extend($driver, Closure $callback): static
     {
+        unset($this->drivers[$driver]);
+
         return parent::extend($driver, $callback);
     }
 }

@@ -33,3 +33,13 @@ it('events use Dispatchable trait')
 it('contracts are interfaces')
     ->expect('Arca\PaymentGateways\Contracts')
     ->toBeInterfaces();
+
+it('drivers build on AbstractDriver')
+    ->expect('Arca\PaymentGateways\Drivers')
+    ->classes()
+    ->toExtend('Arca\PaymentGateways\Drivers\AbstractDriver')
+    ->ignoring('Arca\PaymentGateways\Drivers\AbstractDriver');
+
+it('leaves transactions and events to the payment service')
+    ->expect('Arca\PaymentGateways\Drivers')
+    ->not->toUse(['Illuminate\Support\Facades\DB', 'Illuminate\Support\Facades\Event']);
