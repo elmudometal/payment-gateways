@@ -20,7 +20,7 @@ A clean, testable, and extensible payment gateway integration for Laravel. Add n
 ## Requirements
 
 - PHP 8.4+
-- Laravel 13.0+
+- Laravel 12 or 13
 
 ## Installation
 
@@ -275,6 +275,10 @@ $fake->respondWith(new ChargeResult(
     status: PaymentStatus::Failed,
     message: 'Card declined',
 ));
+
+// Webhooks sent to the fake are accepted unless you reject them
+$fake->rejectWebhooks();
+$fake->assertWebhookHandled(0);
 ```
 
 Run the package tests:
@@ -285,11 +289,7 @@ composer test
 
 ## Upgrading from v1.x
 
-See [UPGRADE.md](UPGRADE.md) for a complete migration guide. The package includes:
-
-- `php artisan payment-gateways:migrate-from-v1` — automatic database migration
-- `LegacyControllerAdapter` — bridge for apps with custom v1 controllers
-- `LegacyRouteRedirector` — 301 redirects from v1 routes to v2
+v2 is a clean break: v1.x is discontinued and v2 ships no compatibility layer. See [UPGRADE.md](UPGRADE.md) for what changed and how to move an existing application.
 
 ## Changelog
 
