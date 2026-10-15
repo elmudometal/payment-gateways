@@ -10,7 +10,7 @@ class WebhookReceived
     use Dispatchable, SerializesModels;
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function __construct(
         public readonly string $gateway,

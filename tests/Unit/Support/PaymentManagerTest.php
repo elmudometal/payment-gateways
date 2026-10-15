@@ -1,9 +1,11 @@
 <?php
 
 use Arca\PaymentGateways\Contracts\PaymentGateway;
+use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Exceptions\GatewayConfigurationException;
 use Arca\PaymentGateways\Support\PaymentManager;
 use Arca\PaymentGateways\Support\Testing\FakeDriver;
+use Arca\PaymentGateways\ValueObjects\ChargeResult;
 
 it('resolves the default driver', function () {
     $manager = app(PaymentManager::class);
@@ -28,17 +30,17 @@ it('allows extending with custom drivers', function () {
             return 'custom';
         }
 
-        public function charge($payment, $intent): \Arca\PaymentGateways\ValueObjects\ChargeResult
+        public function charge($payment, $intent): ChargeResult
         {
-            return new \Arca\PaymentGateways\ValueObjects\ChargeResult(
-                status: \Arca\PaymentGateways\Enums\PaymentStatus::Paid,
+            return new ChargeResult(
+                status: PaymentStatus::Paid,
             );
         }
 
-        public function query($payment): \Arca\PaymentGateways\ValueObjects\ChargeResult
+        public function query($payment): ChargeResult
         {
-            return new \Arca\PaymentGateways\ValueObjects\ChargeResult(
-                status: \Arca\PaymentGateways\Enums\PaymentStatus::Pending,
+            return new ChargeResult(
+                status: PaymentStatus::Pending,
             );
         }
     };

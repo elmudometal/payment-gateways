@@ -1,7 +1,10 @@
 <?php
 
+use Arca\PaymentGateways\Contracts\PaymentGateway;
+use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Events\WebhookReceived;
 use Arca\PaymentGateways\Support\PaymentManager;
+use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Illuminate\Support\Facades\Event;
 
 it('dispatches WebhookReceived event for valid webhook', function () {
@@ -21,24 +24,24 @@ it('dispatches WebhookReceived event for valid webhook', function () {
 it('returns 404 for gateway without webhook support', function () {
     $manager = app(PaymentManager::class);
 
-    $manager->extend('no-webhook', fn () => new class implements \Arca\PaymentGateways\Contracts\PaymentGateway
+    $manager->extend('no-webhook', fn () => new class implements PaymentGateway
     {
         public function name(): string
         {
             return 'no-webhook';
         }
 
-        public function charge($p, $i): \Arca\PaymentGateways\ValueObjects\ChargeResult
+        public function charge($p, $i): ChargeResult
         {
-            return new \Arca\PaymentGateways\ValueObjects\ChargeResult(
-                status: \Arca\PaymentGateways\Enums\PaymentStatus::Paid,
+            return new ChargeResult(
+                status: PaymentStatus::Paid,
             );
         }
 
-        public function query($p): \Arca\PaymentGateways\ValueObjects\ChargeResult
+        public function query($p): ChargeResult
         {
-            return new \Arca\PaymentGateways\ValueObjects\ChargeResult(
-                status: \Arca\PaymentGateways\Enums\PaymentStatus::Pending,
+            return new ChargeResult(
+                status: PaymentStatus::Pending,
             );
         }
     });

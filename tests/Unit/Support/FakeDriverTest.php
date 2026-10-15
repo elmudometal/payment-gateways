@@ -6,7 +6,6 @@ use Arca\PaymentGateways\Support\Testing\FakeDriver;
 use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\RefundResult;
 use Arca\PaymentGateways\ValueObjects\ReturnUrls;
 
 it('records charges and allows assertions', function () {

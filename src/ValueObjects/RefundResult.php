@@ -7,7 +7,7 @@ use Arca\PaymentGateways\Enums\PaymentStatus;
 final readonly class RefundResult
 {
     /**
-     * @param array<string, mixed> $raw
+     * @param  array<string, mixed>  $raw
      */
     public function __construct(
         public PaymentStatus $status,

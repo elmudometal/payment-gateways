@@ -1,6 +1,5 @@
 <?php
 
-use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\Support\PaymentManager;
 

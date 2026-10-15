@@ -5,7 +5,7 @@ namespace Arca\PaymentGateways\ValueObjects;
 final readonly class ChargeIntent
 {
     /**
-     * @param array<string, mixed> $metadata
+     * @param  array<string, mixed>  $metadata
      */
     public function __construct(
         public Money $money,

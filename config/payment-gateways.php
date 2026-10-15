@@ -1,5 +1,7 @@
 <?php
 
+use Arca\PaymentGateways\Models\Payment;
+
 return [
 
     /*
@@ -84,6 +86,6 @@ return [
     | Payment Model
     |--------------------------------------------------------------------------
     */
-    'model' => Arca\PaymentGateways\Models\Payment::class,
+    'model' => Payment::class,
 
 ];

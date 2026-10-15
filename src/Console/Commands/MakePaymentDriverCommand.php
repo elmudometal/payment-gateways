@@ -32,19 +32,19 @@ class MakePaymentDriverCommand extends Command
 
         $this->components->info("Payment driver [{$studly}] created at [{$dir}].");
         $this->newLine();
-        $this->line("  Register it in a service provider:");
+        $this->line('  Register it in a service provider:');
         $this->newLine();
         $this->line("  <comment>PaymentGateways::extend('{$lower}', function (\$app, \$config) {</comment>");
         $this->line("  <comment>    return new \\App\\PaymentDrivers\\{$studly}\\{$studly}Driver(\$config);</comment>");
-        $this->line("  <comment>});</comment>");
+        $this->line('  <comment>});</comment>');
         $this->newLine();
-        $this->line("  Then add the gateway config in <comment>config/payment-gateways.php</comment>:");
+        $this->line('  Then add the gateway config in <comment>config/payment-gateways.php</comment>:');
         $this->newLine();
         $this->line("  <comment>'{$lower}' => [</comment>");
         $this->line("  <comment>    'driver' => '{$lower}',</comment>");
         $this->line("  <comment>    'environment' => env('".Str::upper($name)."_ENV', 'sandbox'),</comment>");
-        $this->line("  <comment>    // your credentials...</comment>");
-        $this->line("  <comment>],</comment>");
+        $this->line('  <comment>    // your credentials...</comment>');
+        $this->line('  <comment>],</comment>');
 
         return self::SUCCESS;
     }

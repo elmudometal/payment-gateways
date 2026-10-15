@@ -1,18 +1,19 @@
 <?php
 
+use Arca\PaymentGateways\Contracts\PaymentGateway;
 use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Events\PaymentApproved;
 use Arca\PaymentGateways\Events\PaymentInitiated;
 use Arca\PaymentGateways\Events\PaymentRefunded;
 use Arca\PaymentGateways\Events\PaymentRejected;
+use Arca\PaymentGateways\Exceptions\UnsupportedFeatureException;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\Services\PaymentService;
 use Arca\PaymentGateways\Support\PaymentManager;
 use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\RefundResult;
 use Arca\PaymentGateways\ValueObjects\ReturnUrls;
 use Illuminate\Support\Facades\Event;
 
@@ -115,7 +116,7 @@ it('refunds a payment', function () {
 });
 
 it('throws on unsupported refund', function () {
-    $this->manager->extend('no-refund', fn () => new class implements \Arca\PaymentGateways\Contracts\PaymentGateway
+    $this->manager->extend('no-refund', fn () => new class implements PaymentGateway
     {
         public function name(): string
         {
@@ -136,4 +137,4 @@ it('throws on unsupported refund', function () {
     $payment = Payment::factory()->create(['gateway' => 'no-refund']);
 
     $this->service->refund($payment);
-})->throws(\Arca\PaymentGateways\Exceptions\UnsupportedFeatureException::class);
+})->throws(UnsupportedFeatureException::class);
