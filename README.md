@@ -4,18 +4,31 @@
 [![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/elmudometal/payment-gateways/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/elmudometal/payment-gateways/actions?query=workflow%3Arun-tests+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/arca/payment-gateways.svg?style=flat-square)](https://packagist.org/packages/arca/payment-gateways)
 
-A clean, testable, and extensible payment gateway integration for Laravel. Add new payment providers with zero modifications to the package.
+Latin American payment gateways for Laravel behind one API: create a payment, send the buyer to
+its checkout URL, and listen to `PaymentApproved`. The package handles the return from the
+gateway, the notifications and every status change.
 
-## Supported Gateways
+| Gateway      | Countries           | Checkout          | Refunds          | Notifications            |
+|--------------|---------------------|-------------------|------------------|--------------------------|
+| Webpay Plus  | Chile (CLP)         | Redirect          | Full and partial | —                        |
+| Getnet       | Chile               | Redirect          | Full             | Signed (sha1 / sha256)   |
+| Flow         | Chile               | Redirect          | —                | Confirmation URL         |
+| Mercado Pago | Latin America       | Redirect          | Full and partial | Signed (`x-signature`)   |
+| PayPal       | Worldwide           | Redirect          | Full and partial | Verified with PayPal API |
+| Niubiz       | Peru (PEN, USD)     | Embedded form     | —                | —                        |
 
-| Gateway     | Charge | Refund | Webhooks |
-|-------------|--------|--------|----------|
-| Webpay      | Yes    | —      | Yes      |
-| Getnet      | Yes    | —      | Yes      |
-| PayPal      | Yes    | Yes    | Yes      |
-| Flow        | Yes    | —      | Yes      |
-| Niubiz      | Yes    | —      | —        |
-| MercadoPago | Yes    | Yes    | Yes      |
+## How it protects payments
+
+- **The gateway API is the source of truth.** Return URLs and notifications only tell the package
+  to ask the gateway; query strings are never trusted.
+- **Every result is checked against the payment**: the reference (order number) must match, and an
+  approval for a lower amount or another currency is refused.
+- **Statuses only move forward.** Out-of-order notifications never turn a paid payment into a
+  rejected one, and a payment never goes back to pending.
+- **Notifications are verified** (signatures, PayPal's verification API) and a missing secret is a
+  refusal in production.
+- **One place changes a payment**: `PaymentService` locks the row, applies the result and
+  dispatches the events after the transaction commits.
 
 ## Requirements
 
@@ -28,278 +41,222 @@ A clean, testable, and extensible payment gateway integration for Laravel. Add n
 composer require arca/payment-gateways
 ```
 
-Install optional SDK dependencies only for the gateways you use:
+Install the SDK of the gateways that need one:
 
 ```bash
-# Webpay
-composer require transbank/transbank-sdk
-
-# Getnet
-composer require dnetix/redirection
+composer require transbank/transbank-sdk   # Webpay (^5.0)
+composer require dnetix/redirection        # Getnet (^2.1)
 ```
 
-Publish the config and run migrations:
+Publish the config and the migration, then migrate:
 
 ```bash
 php artisan vendor:publish --tag="payment-gateways-config"
+php artisan vendor:publish --tag="payment-gateways-migrations"
 php artisan migrate
 ```
 
 ## Configuration
 
-Add your gateway credentials to `.env`:
+Each gateway has an `environment` (`sandbox` or `production`). Leave it empty to follow the
+application: production when `APP_ENV=production`, sandbox otherwise.
 
 ```env
 PAYMENT_GATEWAY=webpay
 
-# Webpay
-WEBPAY_ENV=sandbox
-WEBPAY_CODE=your-commerce-code
-WEBPAY_API_KEY=your-api-key
-
-# PayPal
-PAYPAL_ENV=sandbox
-PAYPAL_CLIENT_ID=your-client-id
-PAYPAL_CLIENT_SECRET=your-secret
-
-# MercadoPago
-MERCADOPAGO_ENV=sandbox
-MERCADOPAGO_ACCESS_TOKEN=your-access-token
-
-# Flow
-FLOW_ENV=sandbox
-FLOW_API_KEY=your-api-key
-FLOW_SECRET=your-secret-key
+# Webpay: empty in sandbox, Transbank's integration credentials are used
+WEBPAY_COMMERCE_CODE=
+WEBPAY_API_KEY=
 
 # Getnet
-GETNET_ENV=sandbox
-GETNET_LOGIN=your-login
-GETNET_TRAN_KEY=your-tran-key
+GETNET_LOGIN=
+GETNET_TRAN_KEY=
+
+# Flow
+FLOW_API_KEY=
+FLOW_SECRET_KEY=
+
+# Mercado Pago
+MERCADOPAGO_ACCESS_TOKEN=
+MERCADOPAGO_WEBHOOK_SECRET=        # required in production
+MERCADOPAGO_WEBHOOK_TOLERANCE=     # optional, seconds (replay protection)
+MERCADOPAGO_STATEMENT_DESCRIPTOR=
+
+# PayPal
+PAYPAL_CLIENT_ID=
+PAYPAL_CLIENT_SECRET=
+PAYPAL_WEBHOOK_ID=                 # required in production
 
 # Niubiz
-NIUBIZ_ENV=sandbox
-NIUBIZ_MERCHANT_ID=your-merchant-id
-NIUBIZ_USER=your-user
-NIUBIZ_PASSWORD=your-password
+NIUBIZ_MERCHANT_ID=
+NIUBIZ_USER=
+NIUBIZ_PASSWORD=
+```
+
+The gateway name is a config key, so one driver can serve several accounts:
+
+```php
+'gateways' => [
+    'mercadopago_cl' => ['driver' => 'mercadopago', 'access_token' => env('MP_CL_TOKEN')],
+    'mercadopago_pe' => ['driver' => 'mercadopago', 'access_token' => env('MP_PE_TOKEN')],
+],
 ```
 
 ## Usage
 
-### Creating and charging a payment
-
-```php
-use Arca\PaymentGateways\Services\PaymentService;
-use Arca\PaymentGateways\ValueObjects\ChargeIntent;
-use Arca\PaymentGateways\ValueObjects\Customer;
-use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\ValueObjects\ReturnUrls;
-
-$service = app(PaymentService::class);
-
-// 1. Create the payment record
-$intent = new ChargeIntent(
-    money: Money::CLP(50000),
-    description: 'Order #123',
-    urls: new ReturnUrls(
-        returnUrl: route('payments.commit', ':uuid:'),
-        webhookUrl: route('payments.webhook', 'webpay'),
-    ),
-    customer: new Customer(email: 'buyer@example.com'),
-);
-
-$payment = $service->create('webpay', $intent, $order); // $order = your payable model
-
-// 2. Charge — most gateways return a redirect URL
-$result = $service->charge($payment, $intent);
-
-if ($result->requiresRedirect()) {
-    return redirect()->away($result->redirectUrl);
-}
-```
-
-### Using the Facade
+### Taking a payment
 
 ```php
 use Arca\PaymentGateways\Facades\PaymentGateways;
-
-// Use the default gateway
-$driver = PaymentGateways::driver();
-
-// Use a specific gateway
-$driver = PaymentGateways::driver('mercadopago');
-```
-
-### Money value object
-
-```php
+use Arca\PaymentGateways\ValueObjects\Customer;
 use Arca\PaymentGateways\ValueObjects\Money;
-use Arca\PaymentGateways\Enums\Currency;
 
-Money::CLP(50000);                          // 50.000 CLP (no decimals)
-Money::USD(1999);                           // $19.99 USD (in cents)
-Money::PEN(3500);                           // S/ 35.00 PEN (in cents)
-Money::fromDecimal(19.99, Currency::USD);   // $19.99 USD
+$payment = PaymentGateways::create(
+    gateway: 'webpay',
+    money: Money::CLP(15000),
+    description: "Order #{$order->id}",
+    payable: $order,                                          // optional, morph relation
+    customer: new Customer(name: $user->name, email: $user->email),
+);
+
+return redirect($payment->checkoutUrl());
 ```
 
-### Querying payment status
+`checkoutUrl()` starts the checkout: it redirects the buyer to the gateway (or renders the Niubiz
+form). When the buyer comes back, the package confirms the payment with the gateway and shows
+the success, pending or failed page.
 
-```php
-$result = $service->query($payment);
-
-if ($result->isApproved()) {
-    // Payment was successful
-}
-```
-
-### Refunds
-
-```php
-// Full refund (PayPal, MercadoPago)
-$result = $service->refund($payment);
-
-// Partial refund
-$result = $service->refund($payment, Money::USD(500));
-```
-
-### Associating with your models
-
-The `Payment` model uses a polymorphic `payable` relationship:
-
-```php
-$payment = $service->create('webpay', $intent, $order);
-
-// Later
-$payment->payable; // returns your Order model
-```
-
-## Events
-
-All events are dispatched automatically by `PaymentService`:
-
-| Event              | When                           |
-|--------------------|--------------------------------|
-| `PaymentInitiated` | `charge()` is called           |
-| `PaymentApproved`  | Status changes to `paid`       |
-| `PaymentRejected`  | Status changes to `failed`     |
-| `PaymentRefunded`  | Refund is successful           |
-| `WebhookReceived`  | Any webhook hits the endpoint  |
+Then fulfil the order when it is paid, whether the buyer came back or only a notification arrived:
 
 ```php
 use Arca\PaymentGateways\Events\PaymentApproved;
 
 Event::listen(PaymentApproved::class, function (PaymentApproved $event) {
-    $payment = $event->payment;
-    // Fulfill the order, send email, etc.
+    $event->payment->payable->markAsPaid();
 });
 ```
 
-## Webhooks
+### Routes
 
-A unified webhook endpoint is registered automatically:
+| Route                         | URL                              | Purpose                                      |
+|-------------------------------|----------------------------------|----------------------------------------------|
+| `payments.show`               | `/payments/{payment}`            | Starts the checkout (`checkoutUrl()`)        |
+| `payments.commit`             | `/payments/{payment}/commit`     | The buyer is back (GET or POST, no CSRF)     |
+| `payments.success` / `pending` / `failed` | `/payments/{payment}/…` | Result pages                                 |
+| `payments.webhook`            | `/payments/webhooks/{gateway}`   | Gateway notifications                        |
 
-```
-POST /payments/webhooks/{gateway}
-```
-
-Each gateway driver verifies the webhook signature and updates the payment. The `WebhookReceived` event is dispatched for every valid webhook.
-
-## Extending with custom gateways
-
-### Using the command
-
-```bash
-php artisan make:payment-driver MercadoLibre
-```
-
-This scaffolds `app/PaymentDrivers/MercadoLibre/MercadoLibreDriver.php`.
-
-### Registering the driver
-
-```php
-use Arca\PaymentGateways\Facades\PaymentGateways;
-
-// In a service provider
-PaymentGateways::extend('mercadolibre', function ($app) {
-    $config = config('payment-gateways.gateways.mercadolibre');
-    return new \App\PaymentDrivers\MercadoLibre\MercadoLibreDriver($config);
-});
-```
-
-Add the config:
+Send the buyer to your own pages instead of the package views:
 
 ```php
 // config/payment-gateways.php
-'gateways' => [
-    'mercadolibre' => [
-        'driver' => 'mercadolibre',
-        'environment' => env('MERCADOLIBRE_ENV', 'sandbox'),
-        // your credentials...
-    ],
+'redirects' => [
+    'success' => 'orders.thanks',   // route names, they receive the payment
+    'pending' => 'orders.pending',
+    'failed' => 'orders.failed',
 ],
 ```
 
-### Optional interfaces
+Or publish and edit the views (`--tag="payment-gateways-views"`) and translations
+(`--tag="payment-gateways-translations"`, Spanish and English included).
 
-Drivers can implement additional capabilities:
+### Notifications
+
+The webhook URL is sent to the gateway automatically when it is public HTTPS (not on localhost):
+
+- **Mercado Pago**: set the webhook secret from *Your integrations > Webhooks* in
+  `MERCADOPAGO_WEBHOOK_SECRET`.
+- **PayPal**: register `https://your-app/payments/webhooks/paypal` in the developer dashboard
+  (events `CHECKOUT.ORDER.APPROVED` and `PAYMENT.CAPTURE.*`) and set `PAYPAL_WEBHOOK_ID`.
+- **Getnet**: configure `https://your-app/payments/webhooks/getnet` as notification URL of the site.
+- **Flow**: nothing to do, the confirmation URL goes with each payment.
+
+Schedule the sync command to catch notifications that never arrived:
 
 ```php
-use Arca\PaymentGateways\Contracts\SupportsRefunds;
-use Arca\PaymentGateways\Contracts\SupportsWebhooks;
-
-class MyDriver extends AbstractDriver implements PaymentGateway, SupportsRefunds, SupportsWebhooks
-{
-    // ...
-}
+Schedule::command('payment-gateways:sync')->everyFifteenMinutes();
 ```
 
-## Testing
+It asks the gateways for the status of pending payments started at least 10 minutes ago
+(`--older-than`, `--max-age`, `--gateway`, or a single payment uuid).
 
-The package provides a fake driver for testing:
+### Status, money and refunds
+
+```php
+$payment->status;              // PaymentStatus::Pending, Authorized, Paid, Failed, Refunded, Reversed
+$payment->isPaid();
+$payment->money()->format();   // "15.000 CLP"
+$payment->failureMessage();    // why the gateway rejected it
+$payment->voucher();           // the gateway answer kept for your records
+
+PaymentGateways::sync($payment);                       // ask the gateway now
+PaymentGateways::refund($payment);                     // full refund
+PaymentGateways::refund($payment, Money::CLP(5000));   // partial refund
+```
+
+`Money` holds amounts in the currency's minor unit: `Money::CLP(15000)` is 15.000 pesos,
+`Money::USD(1999)` is 19.99 dollars, and `Money::fromDecimal('19.99', 'USD')` builds the same.
+
+### Events
+
+| Event                  | When                                               |
+|------------------------|----------------------------------------------------|
+| `PaymentInitiated`     | The checkout started                               |
+| `PaymentStatusChanged` | Any status change (with `from` and `to`)           |
+| `PaymentAuthorized`    | Authorized, not captured yet                       |
+| `PaymentApproved`      | Paid                                               |
+| `PaymentRejected`      | Rejected or cancelled                              |
+| `PaymentRefunded`      | Fully refunded                                     |
+| `PaymentReversed`      | Chargeback or reversal                             |
+| `WebhookReceived`      | A notification passed verification                 |
+
+Status events are dispatched after the database transaction commits.
+
+## Custom gateways
+
+```bash
+php artisan make:payment-driver Khipu
+```
+
+The driver lands in `app/PaymentDrivers/Khipu`. Register it and add its config:
+
+```php
+PaymentGateways::extend('khipu', fn ($app, array $config) => new KhipuDriver($config));
+```
+
+A driver implements `charge()`, `complete()` and `query()`; add `SupportsRefunds` and
+`SupportsWebhooks` when the gateway offers them. Return the reference and amount the gateway
+reports in each `ChargeResult`: the package checks them before changing the payment.
+
+## Testing your application
 
 ```php
 use Arca\PaymentGateways\Facades\PaymentGateways;
-use Arca\PaymentGateways\Enums\PaymentStatus;
-use Arca\PaymentGateways\ValueObjects\ChargeResult;
 
-// Fake the default gateway
-$fake = PaymentGateways::fake();
+$fake = PaymentGateways::fake('webpay');
 
-// Run your code...
+$this->get($payment->checkoutUrl());                   // redirects to a fake checkout
+$this->get(route('payments.commit', $payment));        // the fake approves it
 
-$fake->assertCharged(1);
-$fake->assertNotCharged();
-$fake->assertRefunded(1);
+$fake->assertCharged()->assertCompleted();
 
-// Simulate failures
-$fake->respondWith(new ChargeResult(
-    status: PaymentStatus::Failed,
-    message: 'Card declined',
-));
-
-// Webhooks sent to the fake are accepted unless you reject them
+// Other answers
+$fake->completeWith(new ChargeResult(status: PaymentStatus::Failed, message: 'Card declined'));
+$fake->respondRefundWith(new RefundResult(status: PaymentStatus::Paid));
 $fake->rejectWebhooks();
-$fake->assertWebhookHandled(0);
 ```
 
-Run the package tests:
-
-```bash
-composer test
-```
+Run the package tests with `composer test`.
 
 ## Upgrading from v1.x
 
-v2 is a clean break: v1.x is discontinued and v2 ships no compatibility layer. See [UPGRADE.md](UPGRADE.md) for what changed and how to move an existing application.
+v2 is a clean break: v1.x is discontinued and v2 ships no compatibility layer. See
+[UPGRADE.md](UPGRADE.md).
 
 ## Changelog
 
-Please see [CHANGELOG.md](CHANGELOG.md) for more information on what has changed recently.
+See [CHANGELOG.md](CHANGELOG.md).
 
-## Contributing
-
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
-
-## Security Vulnerabilities
+## Security
 
 Please review [our security policy](../../security/policy) on how to report security vulnerabilities.
 

@@ -8,127 +8,102 @@ upgrade as a change to your application, not as a drop-in package update.
 
 - **PHP 8.4+** (was 8.1+)
 - **Laravel 12 or 13** (was 9+)
+- **transbank/transbank-sdk ^5.0** if you use Webpay (was ^3.0)
 
-## Step 1: Update composer.json
+## 1. Update the package
 
 ```bash
 composer require arca/payment-gateways:^2.0
+composer require transbank/transbank-sdk:^5.0   # Webpay
+composer require dnetix/redirection:^2.1        # Getnet
 ```
 
-Gateway SDKs are now optional. Install only what you use:
-
-```bash
-# If you use Webpay:
-composer require transbank/transbank-sdk
-
-# If you use Getnet:
-composer require dnetix/redirection
-```
-
-## Step 2: Republish the config
-
-The config format has completely changed:
+## 2. Republish the config
 
 ```bash
 php artisan vendor:publish --tag="payment-gateways-config" --force
 ```
 
+Gateways now live under `gateways`, with a `driver` and an optional `environment`. The
+`controller` and `commerce_name` keys are gone. Some environment variables were renamed:
+
+| v1                   | v2                      |
+|----------------------|-------------------------|
+| `WEBPAY_CODE`        | `WEBPAY_COMMERCE_CODE`  |
+| `FLOW_SECRET`        | `FLOW_SECRET_KEY`       |
+| `MERCADOPAGO_CURRENCY` | — (the payment has its own currency) |
+| —                    | `PAYPAL_WEBHOOK_ID`     |
+
+`environment` follows `APP_ENV` when empty. In v1 the sandbox Getnet credentials were hardcoded:
+set `GETNET_LOGIN` and `GETNET_TRAN_KEY` for every environment now.
+
+## 3. Migrate the payments table
+
+Publish the v2 migration with
+`php artisan vendor:publish --tag="payment-gateways-migrations"` to see the new schema, then
+write a migration in your application that moves your data:
+
+| v1 column  | v2 column        | Notes                                                                          |
+|------------|------------------|--------------------------------------------------------------------------------|
+| `type`     | `gateway`        | Lowercase gateway name (`webpay`, `flow`, ...)                                 |
+| `voucher`  | `metadata`       | JSON; v2 keeps the gateway answer under `metadata.voucher`                     |
+| `comments` | `description`    |                                                                                |
+| `model_*`  | `payable_*`      | Morph columns renamed                                                          |
+| `status`   | `status`         | `Paid`→`paid`, `Pending`→`pending`, `Canceled`→`failed`, `Reversed`→`reversed` |
+| `amount`   | `amount`         | Unsigned big integer, in the currency's minor unit (cents for USD and PEN)     |
+| `token`    | `external_id`    | Webpay token, Mercado Pago preference, PayPal order, ...                       |
+| —          | `transaction_id` | The gateway's payment id, used for refunds                                     |
+| —          | `currency`       | ISO 4217 code (`CLP` for v1 Chilean payments, `PEN` for Niubiz)                |
+| —          | `paid_at`        | Backfill from `updated_at` for paid records if you need it                     |
+| —          | `expires_at`     |                                                                                |
+
+v1 stored PayPal and Niubiz amounts as whole units: multiply them by 100.
+
+## 4. Start payments the v2 way
+
 ```php
 // v1
-'webpay' => [
-    'commerce_name' => '...',
-    'commerce_code' => env('WEBPAY_CODE'),
-    'commerce_api_key' => env('WEBPAY_API_KEY'),
-    'controller' => WebpayController::class,
-],
+$payment = Payment::create(['type' => 'Webpay', 'amount' => 15000, 'comments' => 'Order #1', ...]);
+return redirect()->route('webpay.init', $payment->uuid);
 
 // v2
-'default' => env('PAYMENT_GATEWAY', 'webpay'),
-'gateways' => [
-    'webpay' => [
-        'driver' => 'webpay',
-        'environment' => env('WEBPAY_ENV', 'sandbox'),
-        'commerce_code' => env('WEBPAY_CODE'),
-        'api_key' => env('WEBPAY_API_KEY'),
-    ],
-],
+$payment = PaymentGateways::create('webpay', Money::CLP(15000), 'Order #1', payable: $order);
+return redirect($payment->checkoutUrl());
 ```
 
-- A top-level `default` key sets the default gateway.
-- All gateways are nested under `gateways`.
-- The `controller` key is gone: customise behaviour with events or `PaymentGateways::extend()`.
-- An explicit `environment` key replaces detection through `app()->environment()`.
-- `commerce_name` is gone.
-
-## Step 3: Migrate the payments table
-
-v2 uses a new `payments` schema. Write a migration in your application that moves your data:
-
-| v1 column  | v2 column     | Notes                                                                     |
-|------------|---------------|---------------------------------------------------------------------------|
-| `type`     | `gateway`     | Lowercase gateway name (`webpay`, `flow`, ...)                            |
-| `voucher`  | `metadata`    | JSON; v2 stores the raw gateway response under `metadata.voucher`         |
-| `comments` | `description` |                                                                           |
-| `model_*`  | `payable_*`   | Morph columns renamed                                                     |
-| `status`   | `status`      | `Paid`→`paid`, `Pending`→`pending`, `Canceled`→`failed`, `Reversed`→`reversed` |
-| `amount`   | `amount`      | `bigInteger`, in the currency's minor unit                                |
-| `token`    | `external_id` | Indexed                                                                   |
-| —          | `currency`    | New, ISO 4217 code (`CLP` for existing Chilean payments)                  |
-| —          | `paid_at`     | New; backfill from `updated_at` for paid records if you need it           |
-| —          | `expires_at`  | New                                                                       |
-
-## Step 4: Update model references
+## 5. Update model references
 
 ```php
 // v1
 $payment->status === Payment::PAID_STATUS;
-$payment->model();
+$payment->model;
 $payment->voucher;
 
 // v2
-use Arca\PaymentGateways\Enums\PaymentStatus;
-
 $payment->status === PaymentStatus::Paid; // or $payment->isPaid()
-$payment->payable();
-$payment->metadata['voucher'];
+$payment->payable;
+$payment->voucher();
 ```
 
-## Step 5: Replace custom controllers
+## 6. Replace custom controllers
 
-v1 let you override a gateway controller through config and its `after*` hooks. In v2, listen to
-events instead:
+v1 let you override a gateway controller and its `after*` hooks. In v2:
 
-```php
-Event::listen(PaymentApproved::class, function (PaymentApproved $event) {
-    $payment = $event->payment;
-});
-```
+- react to payments with events (`PaymentApproved`, `PaymentRejected`, ...), which fire for the
+  buyer's return and for notifications alike;
+- show your own pages with the `redirects` config (route names for success, pending and failed),
+  or publish the package views;
+- replace a driver with `PaymentGateways::extend()`.
 
-Or replace the driver:
+## 7. Update routes and gateway settings
 
-```php
-PaymentGateways::extend('webpay', fn ($app, $config) => new MyWebpayDriver($config));
-```
+| v1 route                 | v2 route           |
+|--------------------------|--------------------|
+| `{gateway}.init`         | `payments.show`    |
+| `{gateway}.commit`       | `payments.commit`  |
+| `{gateway}.successful`   | `payments.success` |
+| —                        | `payments.pending` |
+| `{gateway}.rejected`     | `payments.failed`  |
+| `{gateway}.notification` | `payments.webhook` (`/payments/webhooks/{gateway}`) |
 
-Event payloads are readonly promoted properties: `$event->payment` still works, assigning to it does not.
-
-## Step 6: Update routes and views
-
-v1 had per-gateway routes (`webpay.init`, `getnet.commit`, ...). v2 uses one set of routes:
-
-| v1 route            | v2 route           |
-|---------------------|--------------------|
-| `{gateway}.init`    | `payments.show`    |
-| `{gateway}.commit`  | `payments.commit`  |
-| `{gateway}.successful` | `payments.success` |
-| `{gateway}.rejected`   | `payments.failed`  |
-| —                   | `payments.webhook` |
-
-Update every link and every URL registered with a gateway (return and notification URLs).
-
-v1 per-gateway views are replaced by `payment-gateways::checkout`, `payment-gateways::success` and
-`payment-gateways::failed`. Publish them to customise:
-
-```bash
-php artisan vendor:publish --tag="payment-gateways-views" --force
-```
+Update the URLs registered in the gateway panels (Getnet notification URL, PayPal webhook).

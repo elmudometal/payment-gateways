@@ -43,8 +43,11 @@
         "transbank/transbank-sdk": "5.1"
     },
     "suggest": {
-        "transbank/transbank-sdk": "Required to use the Webpay driver (^3.0)",
-        "dnetix/redirection": "Required to use the Getnet driver (^2.1)"
+        "transbank/transbank-sdk": "Required by the Webpay driver (^5.0)",
+        "dnetix/redirection": "Required by the Getnet driver (^2.1)"
+    },
+    "conflict": {
+        "transbank/transbank-sdk": "<5.0"
     },
     "autoload": {
         "psr-4": {
