@@ -2,7 +2,7 @@
 
 All notable changes to `payment-gateways` will be documented in this file.
 
-## 2.0.0 - Unreleased
+## 2.0.0 - 2026-10-15
 
 Rewrite around gateway drivers. v1.x is discontinued; see [UPGRADE.md](UPGRADE.md).
 
