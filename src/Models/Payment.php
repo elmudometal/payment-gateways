@@ -6,11 +6,11 @@ use Arca\PaymentGateways\Database\Factories\PaymentFactory;
 use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\ValueObjects\Money;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Str;
 
 /**
  * @property string $uuid
@@ -27,7 +27,8 @@ use Illuminate\Support\Str;
  */
 class Payment extends Model
 {
-    use HasFactory, SoftDeletes;
+    /** @use HasFactory<PaymentFactory> */
+    use HasFactory, HasUuids, SoftDeletes;
 
     protected $fillable = [
         'uuid',
@@ -59,11 +60,14 @@ class Payment extends Model
         ];
     }
 
-    protected static function booted(): void
+    /**
+     * The uuid is filled on insert without model events, so it is still set under Event::fake().
+     *
+     * @return list<string>
+     */
+    public function uniqueIds(): array
     {
-        static::creating(function (Payment $payment): void {
-            $payment->uuid ??= (string) Str::uuid();
-        });
+        return ['uuid'];
     }
 
     protected static function newFactory(): PaymentFactory
@@ -71,6 +75,9 @@ class Payment extends Model
         return PaymentFactory::new();
     }
 
+    /**
+     * @return MorphTo<Model, $this>
+     */
     public function payable(): MorphTo
     {
         return $this->morphTo();

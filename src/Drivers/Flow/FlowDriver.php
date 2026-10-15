@@ -35,7 +35,7 @@ class FlowDriver extends AbstractDriver implements PaymentGateway, SupportsWebho
                 'subject' => $intent->description,
                 'currency' => $intent->money->currency->value,
                 'amount' => $intent->money->toDecimal(),
-                'email' => $intent->customer?->email ?? 'no-reply@example.com',
+                'email' => $intent->customer->email ?? 'no-reply@example.com',
                 'paymentMethod' => 9,
                 'urlConfirmation' => $intent->urls->webhookUrl ?? $intent->urls->returnUrl,
                 'urlReturn' => $intent->urls->returnUrl,
@@ -120,7 +120,7 @@ class FlowDriver extends AbstractDriver implements PaymentGateway, SupportsWebho
     }
 
     /**
-     * @param array<string, mixed> $params
+     * @param  array<string, mixed>  $params
      * @return array<string, mixed>
      */
     protected function send(string $endpoint, array $params, string $method = 'GET'): array

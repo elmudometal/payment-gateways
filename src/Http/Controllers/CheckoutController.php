@@ -12,6 +12,8 @@ use Arca\PaymentGateways\Events\PaymentRejected;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\Support\PaymentManager;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
+use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 
@@ -21,7 +23,7 @@ class CheckoutController extends Controller
         protected readonly PaymentManager $manager,
     ) {}
 
-    public function show(Payment $payment)
+    public function show(Payment $payment): RedirectResponse|View
     {
         if ($payment->isPaid()) {
             return redirect()->route('payments.success', $payment);
@@ -34,7 +36,7 @@ class CheckoutController extends Controller
         return view('payment-gateways::checkout', ['payment' => $payment]);
     }
 
-    public function commit(Payment $payment, Request $request)
+    public function commit(Payment $payment, Request $request): RedirectResponse
     {
         $driver = $this->manager->driver($payment->gateway);
 
@@ -58,12 +60,12 @@ class CheckoutController extends Controller
         return redirect()->route('payments.failed', $payment);
     }
 
-    public function success(Payment $payment)
+    public function success(Payment $payment): View
     {
         return view('payment-gateways::success', ['payment' => $payment]);
     }
 
-    public function failed(Payment $payment)
+    public function failed(Payment $payment): View
     {
         return view('payment-gateways::failed', ['payment' => $payment]);
     }

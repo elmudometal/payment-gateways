@@ -56,7 +56,7 @@ class WebpayDriver extends AbstractDriver implements PaymentGateway, SupportsWeb
             $response = $transaction->create(
                 (string) $payment->id,
                 session()->getId(),
-                $intent->money->toDecimal(),
+                $intent->money->amount,
                 $intent->urls->returnUrl,
             );
 

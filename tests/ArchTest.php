@@ -28,7 +28,7 @@ it('drivers implement PaymentGateway contract')
 it('events use Dispatchable trait')
     ->expect('Arca\PaymentGateways\Events')
     ->classes()
-    ->toUse('Illuminate\Foundation\Events\Dispatchable');
+    ->toUseTrait('Illuminate\Foundation\Events\Dispatchable');
 
 it('contracts are interfaces')
     ->expect('Arca\PaymentGateways\Contracts')

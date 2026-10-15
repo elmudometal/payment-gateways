@@ -13,6 +13,7 @@ use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
 use Arca\PaymentGateways\ValueObjects\RefundResult;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -283,7 +284,7 @@ class MercadoPagoDriver extends AbstractDriver implements PaymentGateway, Suppor
         );
     }
 
-    protected function http(): \Illuminate\Http\Client\PendingRequest
+    protected function http(): PendingRequest
     {
         return Http::baseUrl($this->baseUrl())
             ->withToken($this->config['access_token'])
@@ -303,7 +304,7 @@ class MercadoPagoDriver extends AbstractDriver implements PaymentGateway, Suppor
     }
 
     /**
-     * @param array<string, mixed> $mpPayment
+     * @param  array<string, mixed>  $mpPayment
      */
     protected function mapPaymentResponse(array $mpPayment, ?string $externalId = null): ChargeResult
     {

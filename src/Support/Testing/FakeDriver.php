@@ -4,15 +4,17 @@ namespace Arca\PaymentGateways\Support\Testing;
 
 use Arca\PaymentGateways\Contracts\PaymentGateway;
 use Arca\PaymentGateways\Contracts\SupportsRefunds;
+use Arca\PaymentGateways\Contracts\SupportsWebhooks;
 use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
 use Arca\PaymentGateways\ValueObjects\RefundResult;
+use Illuminate\Http\Request;
 use PHPUnit\Framework\Assert;
 
-class FakeDriver implements PaymentGateway, SupportsRefunds
+class FakeDriver implements PaymentGateway, SupportsRefunds, SupportsWebhooks
 {
     /** @var list<array{payment: Payment, intent: ChargeIntent}> */
     protected array $charges = [];
@@ -22,6 +24,11 @@ class FakeDriver implements PaymentGateway, SupportsRefunds
 
     /** @var list<Payment> */
     protected array $queries = [];
+
+    /** @var list<Request> */
+    protected array $webhooks = [];
+
+    protected bool $webhookIsValid = true;
 
     protected ChargeResult $chargeResult;
 
@@ -79,6 +86,30 @@ class FakeDriver implements PaymentGateway, SupportsRefunds
         $this->refunds[] = ['payment' => $payment, 'amount' => $amount];
 
         return $this->refundResult;
+    }
+
+    public function rejectWebhooks(): self
+    {
+        $this->webhookIsValid = false;
+
+        return $this;
+    }
+
+    public function verifyWebhook(Request $request): bool
+    {
+        return $this->webhookIsValid;
+    }
+
+    public function handleWebhook(Request $request): void
+    {
+        $this->webhooks[] = $request;
+    }
+
+    public function assertWebhookHandled(int $times = 1): self
+    {
+        Assert::assertCount($times, $this->webhooks, "Expected {$times} webhook(s), got ".count($this->webhooks));
+
+        return $this;
     }
 
     public function assertCharged(int $times = 1): self

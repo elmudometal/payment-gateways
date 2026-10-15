@@ -1,6 +1,7 @@
 <?php
 
 use Arca\PaymentGateways\Drivers\MercadoPago\MercadoPagoDriver;
+use Arca\PaymentGateways\Enums\Currency;
 use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
 use Arca\PaymentGateways\Models\Payment;
@@ -8,6 +9,7 @@ use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\Customer;
 use Arca\PaymentGateways\ValueObjects\Money;
 use Arca\PaymentGateways\ValueObjects\ReturnUrls;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -32,7 +34,7 @@ it('creates a preference and returns redirect to sandbox', function () {
 
     $payment = Payment::factory()->gateway('mercadopago')->create();
     $intent = new ChargeIntent(
-        money: Money::fromDecimal(15000, \Arca\PaymentGateways\Enums\Currency::CLP),
+        money: Money::fromDecimal(15000, Currency::CLP),
         description: 'Compra de prueba',
         urls: new ReturnUrls(
             returnUrl: 'https://example.com/return',
@@ -123,32 +125,27 @@ it('gets a specific payment by ID', function () {
         ->and($result->authorizationCode)->toBe('77788899');
 });
 
-it('maps all MercadoPago statuses correctly', function () {
-    $statuses = [
-        'approved' => PaymentStatus::Paid,
-        'authorized' => PaymentStatus::Authorized,
-        'pending' => PaymentStatus::Pending,
-        'in_process' => PaymentStatus::Pending,
-        'in_mediation' => PaymentStatus::Pending,
-        'rejected' => PaymentStatus::Failed,
-        'cancelled' => PaymentStatus::Failed,
-        'refunded' => PaymentStatus::Refunded,
-        'charged_back' => PaymentStatus::Reversed,
-    ];
+it('maps MercadoPago status to payment status', function (string $mpStatus, PaymentStatus $expected) {
+    Http::fake([
+        'api.mercadopago.com/v1/payments/1' => Http::response([
+            'id' => 1,
+            'status' => $mpStatus,
+            'external_reference' => 'test',
+        ]),
+    ]);
 
-    foreach ($statuses as $mpStatus => $expected) {
-        Http::fake([
-            'api.mercadopago.com/v1/payments/1' => Http::response([
-                'id' => 1,
-                'status' => $mpStatus,
-                'external_reference' => 'test',
-            ]),
-        ]);
-
-        $result = $this->driver->getPayment(1);
-        expect($result->status)->toBe($expected, "Failed for MP status: {$mpStatus}");
-    }
-});
+    expect($this->driver->getPayment(1)->status)->toBe($expected);
+})->with([
+    ['approved', PaymentStatus::Paid],
+    ['authorized', PaymentStatus::Authorized],
+    ['pending', PaymentStatus::Pending],
+    ['in_process', PaymentStatus::Pending],
+    ['in_mediation', PaymentStatus::Pending],
+    ['rejected', PaymentStatus::Failed],
+    ['cancelled', PaymentStatus::Failed],
+    ['refunded', PaymentStatus::Refunded],
+    ['charged_back', PaymentStatus::Reversed],
+]);
 
 it('refunds a payment fully', function () {
     Http::fake([
@@ -184,7 +181,7 @@ it('refunds a payment partially', function () {
         'metadata' => ['mp_payment_id' => '77788899'],
     ]);
 
-    $partialAmount = Money::fromDecimal(5000, \Arca\PaymentGateways\Enums\Currency::CLP);
+    $partialAmount = Money::fromDecimal(5000, Currency::CLP);
     $result = $this->driver->refund($payment, $partialAmount);
 
     expect($result->isRefunded())->toBeTrue()
@@ -215,7 +212,7 @@ it('throws on API failure during charge', function () {
 
     $payment = Payment::factory()->gateway('mercadopago')->create();
     $intent = new ChargeIntent(
-        money: Money::fromDecimal(1000, \Arca\PaymentGateways\Enums\Currency::CLP),
+        money: Money::fromDecimal(1000, Currency::CLP),
         description: 'Test',
         urls: new ReturnUrls(returnUrl: 'https://example.com'),
         customer: new Customer(email: 'test@example.com'),
@@ -225,7 +222,7 @@ it('throws on API failure during charge', function () {
 })->throws(GatewayCommunicationException::class);
 
 it('verifies webhook with data.id format', function () {
-    $request = \Illuminate\Http\Request::create('/webhook', 'POST', [
+    $request = Request::create('/webhook', 'POST', [
         'data' => ['id' => '12345'],
         'type' => 'payment',
     ]);
@@ -234,7 +231,7 @@ it('verifies webhook with data.id format', function () {
 });
 
 it('verifies webhook with IPN format', function () {
-    $request = \Illuminate\Http\Request::create('/webhook', 'POST', [
+    $request = Request::create('/webhook', 'POST', [
         'topic' => 'payment',
         'id' => '12345',
     ]);
@@ -243,7 +240,7 @@ it('verifies webhook with IPN format', function () {
 });
 
 it('rejects invalid webhook', function () {
-    $request = \Illuminate\Http\Request::create('/webhook', 'POST', [
+    $request = Request::create('/webhook', 'POST', [
         'random' => 'data',
     ]);
 
@@ -251,15 +248,6 @@ it('rejects invalid webhook', function () {
 });
 
 it('handles webhook and updates payment', function () {
-    Http::fake([
-        'api.mercadopago.com/v1/payments/12345' => Http::response([
-            'id' => 12345,
-            'status' => 'approved',
-            'status_detail' => 'accredited',
-            'external_reference' => null,
-        ]),
-    ]);
-
     $payment = Payment::factory()->gateway('mercadopago')->create();
 
     Http::fake([
@@ -271,7 +259,7 @@ it('handles webhook and updates payment', function () {
         ]),
     ]);
 
-    $request = \Illuminate\Http\Request::create('/webhook', 'POST', [
+    $request = Request::create('/webhook', 'POST', [
         'data' => ['id' => '12345'],
         'type' => 'payment',
     ]);
@@ -285,7 +273,7 @@ it('handles webhook and updates payment', function () {
 });
 
 it('ignores webhook for non-payment topics', function () {
-    $request = \Illuminate\Http\Request::create('/webhook', 'POST', [
+    $request = Request::create('/webhook', 'POST', [
         'data' => ['id' => '12345'],
         'type' => 'merchant_order',
     ]);
@@ -308,7 +296,7 @@ it('processes return URL with payment_id', function () {
 
     $payment = Payment::factory()->gateway('mercadopago')->create();
 
-    $request = \Illuminate\Http\Request::create('/return', 'GET', [
+    $request = Request::create('/return', 'GET', [
         'payment_id' => '12345',
         'status' => 'approved',
         'external_reference' => $payment->uuid,
@@ -325,7 +313,7 @@ it('processes return URL without payment_id using status param', function () {
         'external_id' => 'PREF-123',
     ]);
 
-    $request = \Illuminate\Http\Request::create('/return', 'GET', [
+    $request = Request::create('/return', 'GET', [
         'status' => 'rejected',
         'external_reference' => $payment->uuid,
     ]);

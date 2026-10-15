@@ -67,6 +67,18 @@ class PaymentManager extends Manager
     }
 
     /**
+     * @param  string  $driver
+     */
+    protected function createDriver($driver): mixed
+    {
+        if (! isset($this->customCreators[$driver]) && ! method_exists($this, 'create'.ucfirst($driver).'Driver')) {
+            $this->gatewayConfig($driver);
+        }
+
+        return parent::createDriver($driver);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function gatewayConfig(string $name): array

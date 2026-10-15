@@ -14,7 +14,7 @@ abstract class AbstractDriver implements PaymentGateway
     protected Environment $environment;
 
     /**
-     * @param array<string, mixed> $config
+     * @param  array<string, mixed>  $config
      */
     public function __construct(
         protected readonly array $config,

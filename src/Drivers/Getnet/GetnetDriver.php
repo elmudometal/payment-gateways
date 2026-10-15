@@ -37,7 +37,7 @@ class GetnetDriver extends AbstractDriver implements PaymentGateway, SupportsWeb
             $transaction = [
                 'locale' => 'es_CL',
                 'expiration' => Carbon::now()->addHour()->format(DateTime::ATOM),
-                'ipAddress' => $intent->customer?->ip ?? request()->ip(),
+                'ipAddress' => $intent->customer->ip ?? request()->ip(),
                 'userAgent' => 'Arca/PaymentGateways',
                 'returnUrl' => $intent->urls->returnUrl,
                 'cancelUrl' => $intent->urls->cancelUrl ?? $intent->urls->returnUrl,

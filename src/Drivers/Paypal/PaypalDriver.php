@@ -60,7 +60,7 @@ class PaypalDriver extends AbstractDriver implements PaymentGateway, SupportsRef
 
             $data = $response->json();
             $orderId = $data['id'];
-            $approveLink = collect($data['links'] ?? [])->firstWhere('rel', 'approve');
+            $approveLink = Arr::first($data['links'] ?? [], fn (array $link): bool => ($link['rel'] ?? null) === 'approve');
 
             $payment->external_id = $orderId;
             $payment->save();
