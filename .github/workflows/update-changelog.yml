@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update:
@@ -17,15 +18,33 @@ jobs:
         with:
           ref: main
 
+      # Releases written by hand in CHANGELOG.md before tagging already have their section.
+      - name: Check for an existing entry
+        id: existing
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          if grep -Eq "^## \[?v?${VERSION#v}\]?( |$)" CHANGELOG.md; then
+            echo "CHANGELOG.md already has ${VERSION}, nothing to do."
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Update Changelog
+        if: steps.existing.outputs.found != 'true'
         uses: stefanzweifel/changelog-updater-action@v1
         with:
           latest-version: ${{ github.event.release.name }}
           release-notes: ${{ github.event.release.body }}
 
-      - name: Commit updated CHANGELOG
-        uses: stefanzweifel/git-auto-commit-action@v7
+      # main only accepts pull requests, so the update goes through one.
+      - name: Open pull request
+        if: steps.existing.outputs.found != 'true'
+        uses: peter-evans/create-pull-request@v8
         with:
-          branch: main
-          commit_message: Update CHANGELOG
-          file_pattern: CHANGELOG.md
+          branch: changelog/${{ github.event.release.tag_name }}
+          base: main
+          add-paths: CHANGELOG.md
+          commit-message: Update CHANGELOG for ${{ github.event.release.name }}
+          title: Update CHANGELOG for ${{ github.event.release.name }}
+          body: Release notes of [${{ github.event.release.name }}](${{ github.event.release.html_url }}) added to CHANGELOG.md.
+          delete-branch: true
