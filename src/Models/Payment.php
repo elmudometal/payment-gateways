@@ -3,8 +3,9 @@
 namespace Arca\PaymentGateways\Models;
 
 use Arca\PaymentGateways\Database\Factories\PaymentFactory;
-use Arca\PaymentGateways\Events\PaymentApproved;
-use Arca\PaymentGateways\Events\PaymentRejected;
+use Arca\PaymentGateways\Enums\Currency;
+use Arca\PaymentGateways\Enums\PaymentStatus;
+use Arca\PaymentGateways\ValueObjects\Money;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -12,73 +13,56 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 /**
- * Arca\PaymentGateways\Models\Payment
- *
  * @property string $uuid
- * @property string $token
- * @property string $authorization_code
- * @property string $status
- * @property float|int $amount
- * @property string $comments
- * @property array $voucher
+ * @property string $gateway
+ * @property PaymentStatus $status
+ * @property int $amount
+ * @property Currency $currency
+ * @property string|null $external_id
+ * @property string|null $authorization_code
+ * @property string|null $description
+ * @property array $metadata
+ * @property \DateTimeInterface|null $paid_at
+ * @property \DateTimeInterface|null $expires_at
  */
 class Payment extends Model
 {
     use HasFactory, SoftDeletes;
 
-    const PAID_STATUS = 'Paid';
-
-    const PENDING_STATUS = 'Pending';
-
-    const CANCELED_STATUS = 'Canceled';
-
-    const REVERSED_STATUS = 'Reversed';
-
     protected $fillable = [
         'uuid',
-        'type',
-        'token',
-        'authorization_code',
+        'gateway',
         'status',
         'amount',
-        'comments',
-        'voucher',
+        'currency',
+        'external_id',
+        'authorization_code',
+        'description',
+        'metadata',
+        'paid_at',
+        'expires_at',
     ];
 
     protected $attributes = [
-        'status' => self::PENDING_STATUS,
+        'status' => 'pending',
+        'currency' => 'CLP',
     ];
 
-    protected $casts = [
-        'voucher' => 'json',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'status' => PaymentStatus::class,
+            'currency' => Currency::class,
+            'metadata' => 'json',
+            'paid_at' => 'datetime',
+            'expires_at' => 'datetime',
+        ];
+    }
 
     protected static function booted(): void
     {
-        static::updated(function (Payment $payment) {
-            if ($payment->wasChanged('status')) {
-                if ($payment->status == Payment::PAID_STATUS) {
-                    PaymentApproved::dispatch($payment);
-                }
-
-                if ($payment->status == Payment::CANCELED_STATUS) {
-                    PaymentRejected::dispatch($payment);
-                }
-            }
-        });
-
-        static::creating(function (Payment $payment) {
-            $payment->uuid = (string) Str::uuid(); // Genera UUID al crear un pago
-        });
-
-        static::created(function (Payment $payment) {
-            if ($payment->status == Payment::PAID_STATUS) {
-                PaymentApproved::dispatch($payment);
-            }
-
-            if ($payment->status == Payment::CANCELED_STATUS) {
-                PaymentRejected::dispatch($payment);
-            }
+        static::creating(function (Payment $payment): void {
+            $payment->uuid ??= (string) Str::uuid();
         });
     }
 
@@ -87,8 +71,33 @@ class Payment extends Model
         return PaymentFactory::new();
     }
 
-    public function model(): MorphTo
+    public function payable(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    public function money(): Money
+    {
+        return new Money($this->amount, $this->currency);
+    }
+
+    public function isPending(): bool
+    {
+        return $this->status === PaymentStatus::Pending;
+    }
+
+    public function isPaid(): bool
+    {
+        return $this->status === PaymentStatus::Paid;
+    }
+
+    public function isFailed(): bool
+    {
+        return $this->status === PaymentStatus::Failed;
+    }
+
+    public function getRouteKeyName(): string
+    {
+        return 'uuid';
     }
 }
