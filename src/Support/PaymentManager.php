@@ -49,7 +49,9 @@ class PaymentManager extends Manager
             return $this->callCustomCreator($driver);
         }
 
-        $config = $this->gatewayConfig($driver);
+        // Drivers find their payments by this name: with two accounts of one driver
+        // ("webpay_courses", "webpay_workshops") it is the account, not the driver.
+        $config = ['gateway' => $driver] + $this->gatewayConfig($driver);
         $implementation = $config['driver'] ?? $driver;
 
         if (isset($this->customCreators[$implementation])) {

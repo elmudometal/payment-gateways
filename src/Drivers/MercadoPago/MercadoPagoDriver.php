@@ -283,7 +283,7 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
         $result = $this->getPayment($dataId);
 
         $payment = Payment::query()
-            ->where('gateway', $this->name())
+            ->where('gateway', $this->gateway())
             ->where('uuid', (string) $result->reference)
             ->first();
 

@@ -38,6 +38,15 @@ abstract class AbstractDriver implements PaymentGateway
     }
 
     /**
+     * The configured gateway name this driver serves (the `gateway` column of its payments).
+     * Differs from name() when one driver serves several accounts.
+     */
+    protected function gateway(): string
+    {
+        return (string) ($this->config['gateway'] ?? $this->name());
+    }
+
+    /**
      * An HTTP client for the gateway API with timeouts. Failed responses throw
      * GatewayCommunicationException.
      *

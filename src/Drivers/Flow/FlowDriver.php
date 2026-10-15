@@ -105,7 +105,7 @@ class FlowDriver extends AbstractDriver implements SupportsWebhooks
     public function handleWebhook(Request $request): ?WebhookResult
     {
         $payment = Payment::query()
-            ->where('gateway', $this->name())
+            ->where('gateway', $this->gateway())
             ->where('external_id', (string) $request->input('token'))
             ->first();
 

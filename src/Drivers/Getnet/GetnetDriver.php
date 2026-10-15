@@ -196,7 +196,7 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
     public function handleWebhook(Request $request): ?WebhookResult
     {
         $payment = Payment::query()
-            ->where('gateway', $this->name())
+            ->where('gateway', $this->gateway())
             ->where('external_id', (string) $request->input('requestId'))
             ->first();
 

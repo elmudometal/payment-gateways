@@ -93,14 +93,34 @@ NIUBIZ_USER=
 NIUBIZ_PASSWORD=
 ```
 
-The gateway name is a config key, so one driver can serve several accounts:
+### Several accounts of one gateway
+
+The gateway name is a config key and `driver` picks the implementation, so one driver can serve
+several accounts, for example one Webpay commerce for courses and another for workshops:
 
 ```php
 'gateways' => [
-    'mercadopago_cl' => ['driver' => 'mercadopago', 'access_token' => env('MP_CL_TOKEN')],
-    'mercadopago_pe' => ['driver' => 'mercadopago', 'access_token' => env('MP_PE_TOKEN')],
+    'webpay_courses' => [
+        'driver' => 'webpay',
+        'commerce_code' => env('WEBPAY_COURSES_COMMERCE_CODE'),
+        'api_key' => env('WEBPAY_COURSES_API_KEY'),
+    ],
+    'webpay_workshops' => [
+        'driver' => 'webpay',
+        'commerce_code' => env('WEBPAY_WORKSHOPS_COMMERCE_CODE'),
+        'api_key' => env('WEBPAY_WORKSHOPS_API_KEY'),
+    ],
 ],
 ```
+
+```php
+$payment = PaymentGateways::create('webpay_courses', Money::CLP(50000), 'Laravel course', payable: $enrollment);
+```
+
+Each payment remembers its account (`$payment->gateway === 'webpay_courses'`), so the return,
+`sync` and refunds use that account's credentials, and notifications arrive at
+`/payments/webhooks/webpay_courses`. Tell them apart in listeners by `$payment->gateway` or by
+the payable model.
 
 ## Usage
 

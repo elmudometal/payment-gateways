@@ -266,7 +266,7 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
         }
 
         $payment = Payment::query()
-            ->where('gateway', $this->name())
+            ->where('gateway', $this->gateway())
             ->where('external_id', $orderId)
             ->first();
 
