@@ -19,7 +19,7 @@ class PaymentGatewaysServiceProvider extends PackageServiceProvider
             ->hasViews()
             ->hasTranslations()
             ->hasRoutes(['payments'])
-            ->hasMigration('create_payments_table')
+            ->hasMigrations(['create_payments_table', 'create_payment_logs_table'])
             ->hasCommands([
                 MakePaymentDriverCommand::class,
                 SyncPaymentsCommand::class,

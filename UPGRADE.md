@@ -39,14 +39,14 @@ set `GETNET_LOGIN` and `GETNET_TRAN_KEY` for every environment now.
 
 ## 3. Migrate the payments table
 
-Publish the v2 migration with
-`php artisan vendor:publish --tag="payment-gateways-migrations"` to see the new schema, then
-write a migration in your application that moves your data:
+Publish the v2 migrations with
+`php artisan vendor:publish --tag="payment-gateways-migrations"` to see the new schema (`payments`
+and the `payment_logs` audit table), then write a migration in your application that moves your data:
 
 | v1 column  | v2 column        | Notes                                                                          |
 |------------|------------------|--------------------------------------------------------------------------------|
 | `type`     | `gateway`        | Lowercase gateway name (`webpay`, `flow`, ...)                                 |
-| `voucher`  | `metadata`       | JSON; v2 keeps the gateway answer under `metadata.voucher`                     |
+| `voucher`  | `payment_logs`   | v2 stores every raw gateway exchange in `payment_logs`; copy the v1 voucher there (`type` = `query`, `response` = the JSON) to keep it |
 | `comments` | `description`    |                                                                                |
 | `model_*`  | `payable_*`      | Morph columns renamed                                                          |
 | `status`   | `status`         | `Paid`→`paid`, `Pending`→`pending`, `Canceled`→`failed`, `Reversed`→`reversed` |
@@ -82,7 +82,8 @@ $payment->voucher;
 // v2
 $payment->status === PaymentStatus::Paid; // or $payment->isPaid()
 $payment->payable;
-$payment->voucher();
+$payment->logs;          // raw gateway answers
+$payment->receipt('installments');
 ```
 
 ## 6. Replace custom controllers

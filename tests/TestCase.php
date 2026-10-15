@@ -17,6 +17,7 @@ class TestCase extends Orchestra
     protected function defineDatabaseMigrations(): void
     {
         (include __DIR__.'/../database/migrations/create_payments_table.php.stub')->up();
+        (include __DIR__.'/../database/migrations/create_payment_logs_table.php.stub')->up();
     }
 
     protected function getEnvironmentSetUp($app): void

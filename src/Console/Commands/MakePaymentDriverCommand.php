@@ -106,7 +106,6 @@ class MakePaymentDriverCommand extends Command
                     // The reported reference and amount are checked against the payment before it changes.
                     reference: $data['reference'],
                     amount: Money::fromDecimal($data['amount'], $data['currency']),
-                    raw: $data,
                 );
             }
 

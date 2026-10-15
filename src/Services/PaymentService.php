@@ -19,6 +19,8 @@ use Arca\PaymentGateways\Exceptions\InvalidWebhookSignatureException;
 use Arca\PaymentGateways\Exceptions\PaymentVerificationException;
 use Arca\PaymentGateways\Exceptions\UnsupportedFeatureException;
 use Arca\PaymentGateways\Models\Payment;
+use Arca\PaymentGateways\Models\PaymentLog;
+use Arca\PaymentGateways\Support\PaymentLogger;
 use Arca\PaymentGateways\Support\PaymentManager;
 use Arca\PaymentGateways\Support\Testing\FakeDriver;
 use Arca\PaymentGateways\ValueObjects\ChargeIntent;
@@ -39,12 +41,13 @@ class PaymentService
 {
     public function __construct(
         protected readonly PaymentManager $manager,
+        protected readonly PaymentLogger $logger = new PaymentLogger,
     ) {}
 
     /**
      * Creates a pending payment. Send the buyer to $payment->checkoutUrl() to pay it.
      *
-     * @param  array<string, mixed>  $metadata
+     * @param  array<string, mixed>  $metadata  Your own data; the package never writes it
      */
     public function create(
         string $gateway,
@@ -57,16 +60,13 @@ class PaymentService
     ): Payment {
         $this->driver($gateway);
 
-        if ($customer !== null && $customer->toArray() !== []) {
-            $metadata['customer'] = $customer->toArray();
-        }
-
         $payment = new Payment([
             'gateway' => $gateway,
             'amount' => $money->amount,
             'currency' => $money->currency,
             'description' => $description,
-            'metadata' => $metadata,
+            'customer' => $customer,
+            'metadata' => $metadata === [] ? null : $metadata,
             'expires_at' => $expiresAt,
         ]);
 
@@ -97,11 +97,11 @@ class PaymentService
             money: $payment->money(),
             description: $payment->description ?: (string) config('app.name', 'Payment'),
             urls: ReturnUrls::forPayment($payment),
-            customer: $payment->customer(),
+            customer: $payment->customer,
             metadata: $payment->metadata ?? [],
         );
 
-        $result = $driver->charge($payment, $intent);
+        $result = $this->recorded($payment, $driver, PaymentLog::TYPE_CHARGE, fn () => $driver->charge($payment, $intent));
 
         $this->apply($payment, $result, $driver);
 
@@ -118,13 +118,15 @@ class PaymentService
      */
     public function complete(Payment $payment, Request $request): ChargeResult
     {
+        $this->logger->incoming($payment, $payment->gateway, PaymentLog::TYPE_RETURN, $request);
+
         if (! $payment->isPending()) {
             return $this->currentResult($payment);
         }
 
         $driver = $this->driver($payment->gateway);
 
-        $result = $driver->complete($payment, $request);
+        $result = $this->recorded($payment, $driver, PaymentLog::TYPE_COMPLETE, fn () => $driver->complete($payment, $request));
 
         $this->apply($payment, $result, $driver);
 
@@ -138,7 +140,7 @@ class PaymentService
     {
         $driver = $this->driver($payment->gateway);
 
-        $result = $driver->query($payment);
+        $result = $this->recorded($payment, $driver, PaymentLog::TYPE_QUERY, fn () => $driver->query($payment));
 
         $this->apply($payment, $result, $driver);
 
@@ -147,6 +149,7 @@ class PaymentService
 
     /**
      * Verifies and processes a gateway notification. Returns the payment it updated, if any.
+     * Every notification is logged, including those refused or about unknown payments.
      */
     public function handleWebhook(string $gateway, Request $request): ?Payment
     {
@@ -156,7 +159,10 @@ class PaymentService
             throw UnsupportedFeatureException::forFeature('webhooks', $gateway);
         }
 
-        if (! $driver->verifyWebhook($request)) {
+        $verified = $this->recorded(null, $driver, PaymentLog::TYPE_WEBHOOK, fn () => $driver->verifyWebhook($request), $gateway, $verification);
+        $log = $this->logger->incoming(null, $gateway, PaymentLog::TYPE_WEBHOOK, $request, $verified);
+
+        if (! $verified) {
             throw new InvalidWebhookSignatureException(
                 message: "Invalid webhook signature for [{$gateway}].",
                 gateway: $gateway,
@@ -165,11 +171,13 @@ class PaymentService
 
         WebhookReceived::dispatch($gateway, $request->all());
 
-        $webhook = $driver->handleWebhook($request);
+        $webhook = $this->recorded(null, $driver, PaymentLog::TYPE_WEBHOOK, fn () => $driver->handleWebhook($request), $gateway, $resolved);
 
         if ($webhook === null) {
             return null;
         }
+
+        $this->logger->attach($webhook->payment, $log?->getKey(), ...($verification ?? []), ...($resolved ?? []));
 
         if ($webhook->payment->gateway !== $gateway) {
             throw new PaymentVerificationException(
@@ -202,7 +210,7 @@ class PaymentService
             );
         }
 
-        $remaining = $payment->amount - $this->refundedAmount($payment);
+        $remaining = $payment->amount - $payment->refunded_amount;
 
         if ($amount !== null && ($amount->currency !== $payment->currency || $amount->amount > $remaining || $amount->amount === 0)) {
             throw new GatewayException(
@@ -211,7 +219,7 @@ class PaymentService
             );
         }
 
-        $result = $driver->refund($payment, $amount);
+        $result = $this->recorded($payment, $driver, PaymentLog::TYPE_REFUND, fn () => $driver->refund($payment, $amount));
 
         if (! $result->isRefunded()) {
             return $result;
@@ -219,19 +227,12 @@ class PaymentService
 
         $refunded = $amount->amount ?? $remaining;
 
-        DB::transaction(function () use ($payment, $result, $refunded): void {
+        DB::transaction(function () use ($payment, $refunded): void {
             /** @var Payment $locked */
             $locked = Payment::query()->lockForUpdate()->findOrFail($payment->getKey());
 
-            $metadata = $locked->metadata ?? [];
-            $metadata['refunds'][] = [
-                'id' => $result->refundId,
-                'amount' => $refunded,
-                'at' => now()->toIso8601String(),
-            ];
-            $locked->metadata = $metadata;
-
-            $full = $this->refundedAmount($locked) >= $locked->amount;
+            $locked->refunded_amount += $refunded;
+            $full = $locked->refunded_amount >= $locked->amount;
             $from = $locked->status;
 
             if ($full) {
@@ -281,17 +282,15 @@ class PaymentService
             $locked->transaction_id = $result->transactionId ?? $locked->transaction_id;
             $locked->authorization_code = $result->authorizationCode ?? $locked->authorization_code;
 
-            $metadata = $locked->metadata ?? [];
-
-            if ($result->raw !== []) {
-                $metadata['voucher'] = $result->raw;
+            if ($result->receipt !== []) {
+                $locked->receipt = array_filter($result->receipt, fn ($value) => $value !== null && $value !== '') ?: null;
             }
 
-            if ($result->message !== null) {
-                $metadata['message'] = $result->message;
+            if ($result->isFailed()) {
+                $locked->failure_message = $result->message ?? $locked->failure_message;
+            } elseif (in_array($result->status, [PaymentStatus::Paid, PaymentStatus::Authorized], true)) {
+                $locked->failure_message = null;
             }
-
-            $locked->metadata = $metadata;
 
             if ($changed) {
                 $locked->status = $result->status;
@@ -334,6 +333,24 @@ class PaymentService
     }
 
     /**
+     * Runs a driver operation and stores the API calls it made, also when it fails.
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $operation
+     * @param  list<int>|null  $logIds  Filled with the ids of the logs written
+     * @return T
+     */
+    protected function recorded(?Payment $payment, PaymentGateway $driver, string $type, Closure $operation, ?string $gateway = null, ?array &$logIds = null): mixed
+    {
+        try {
+            return $operation();
+        } finally {
+            $logIds = $this->logger->exchanges($payment, $gateway ?? $payment->gateway ?? $driver->name(), $type, $driver);
+        }
+    }
+
+    /**
      * Rejects results whose reference, amount or currency differ from the local payment, so a
      * payment can never be approved with another order's (or a cheaper) gateway payment.
      */
@@ -369,11 +386,6 @@ class PaymentService
             authorizationCode: $payment->authorization_code,
             message: $payment->failureMessage(),
         );
-    }
-
-    protected function refundedAmount(Payment $payment): int
-    {
-        return (int) array_sum(array_column($payment->metadata['refunds'] ?? [], 'amount'));
     }
 
     protected function dispatchStatusEvents(Payment $payment, PaymentStatus $from): void

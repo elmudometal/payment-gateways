@@ -148,15 +148,12 @@ class NiubizDriver extends AbstractDriver
             reference: isset($order['purchaseNumber']) ? (string) $order['purchaseNumber'] : null,
             amount: Money::fromDecimal($order['amount'] ?? 0, $currency),
             message: $approved ? null : $this->actionMessage($actionCode),
-            raw: [
-                'action_code' => $actionCode,
-                'status' => $data['dataMap']['STATUS'] ?? null,
-                'card' => $data['dataMap']['CARD'] ?? null,
-                'brand' => $data['dataMap']['BRAND'] ?? null,
+            receipt: [
+                'card_number' => $data['dataMap']['CARD'] ?? null,
+                'card_brand' => $data['dataMap']['BRAND'] ?? null,
+                'installments' => $data['dataMap']['QUOTA_NUMBER'] ?? null,
                 'transaction_date' => $data['dataMap']['TRANSACTION_DATE'] ?? null,
-                'purchase_number' => $order['purchaseNumber'] ?? null,
-                'amount' => $order['amount'] ?? null,
-                'currency' => $order['currency'] ?? null,
+                'status_detail' => $actionCode,
             ],
         );
     }
@@ -171,12 +168,10 @@ class NiubizDriver extends AbstractDriver
         return new ChargeResult(
             status: PaymentStatus::Failed,
             message: $this->actionMessage($actionCode, $body['data']['ACTION_DESCRIPTION'] ?? null),
-            raw: [
-                'action_code' => $actionCode,
-                'status' => $body['data']['STATUS'] ?? null,
-                'card' => $body['data']['CARD'] ?? null,
-                'brand' => $body['data']['BRAND'] ?? null,
-                'error_code' => $body['errorCode'] ?? null,
+            receipt: [
+                'card_number' => $body['data']['CARD'] ?? null,
+                'card_brand' => $body['data']['BRAND'] ?? null,
+                'status_detail' => $actionCode,
             ],
         );
     }
@@ -197,7 +192,7 @@ class NiubizDriver extends AbstractDriver
         $this->requireConfig(['merchant_id', 'user', 'password']);
 
         try {
-            return $this->http(retry: true)
+            return $this->http(retry: true, record: false)
                 ->withBasicAuth((string) $this->config['user'], (string) $this->config['password'])
                 ->accept('text/plain')
                 ->get('/api.security/v1/security')

@@ -81,7 +81,7 @@ it('renders the result pages', function () {
     $this->get(route('payments.success', $this->payment))->assertOk()->assertSee('AUTH-1');
 
     $failed = PaymentGateways::create('webpay', Money::CLP(1000));
-    $failed->update(['status' => PaymentStatus::Failed, 'metadata' => ['message' => 'Fondos insuficientes']]);
+    $failed->update(['status' => PaymentStatus::Failed, 'failure_message' => 'Fondos insuficientes']);
     $this->get(route('payments.failed', $failed))->assertOk()->assertSee('Fondos insuficientes');
 
     $pending = PaymentGateways::create('webpay', Money::CLP(1000));

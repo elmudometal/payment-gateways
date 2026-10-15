@@ -14,7 +14,6 @@ use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
 use Arca\PaymentGateways\ValueObjects\WebhookResult;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -65,7 +64,6 @@ class FlowDriver extends AbstractDriver implements SupportsWebhooks
             status: PaymentStatus::Pending,
             externalId: (string) $data['token'],
             redirectUrl: $data['url'].'?token='.$data['token'],
-            raw: Arr::only($data, ['flowOrder']),
         );
     }
 
@@ -135,7 +133,11 @@ class FlowDriver extends AbstractDriver implements SupportsWebhooks
             reference: (string) ($data['commerceOrder'] ?? ''),
             amount: Money::fromDecimal($data['amount'] ?? 0, $currency),
             message: $status === PaymentStatus::Failed ? __("payment-gateways::flow.status.{$flowStatus}") : null,
-            raw: Arr::only($data, ['flowOrder', 'commerceOrder', 'requestDate', 'status', 'subject', 'currency', 'amount', 'paymentData']),
+            receipt: [
+                'payment_method' => $data['paymentData']['media'] ?? null,
+                'transaction_date' => $data['paymentData']['date'] ?? null,
+                'installments' => $data['paymentData']['installments'] ?? null,
+            ],
         );
     }
 

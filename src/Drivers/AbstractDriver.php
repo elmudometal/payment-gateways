@@ -3,10 +3,12 @@
 namespace Arca\PaymentGateways\Drivers;
 
 use Arca\PaymentGateways\Contracts\PaymentGateway;
+use Arca\PaymentGateways\Contracts\RecordsExchanges;
 use Arca\PaymentGateways\Enums\Environment;
 use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
 use Arca\PaymentGateways\Exceptions\GatewayConfigurationException;
 use Arca\PaymentGateways\Models\Payment;
+use Arca\PaymentGateways\Support\Journal;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
@@ -15,9 +17,11 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-abstract class AbstractDriver implements PaymentGateway
+abstract class AbstractDriver implements PaymentGateway, RecordsExchanges
 {
     protected Environment $environment;
+
+    protected Journal $journal;
 
     /**
      * @param  array<string, mixed>  $config
@@ -28,6 +32,13 @@ abstract class AbstractDriver implements PaymentGateway
         $this->environment = ! empty($config['environment'])
             ? Environment::from($config['environment'])
             : Environment::fromApp();
+
+        $this->journal = new Journal;
+    }
+
+    public function pullExchanges(): array
+    {
+        return $this->journal->pull();
     }
 
     abstract protected function baseUrl(): string;
@@ -52,8 +63,11 @@ abstract class AbstractDriver implements PaymentGateway
      *
      * Pass $retry for reads: they are retried on connection errors and 5xx answers. Writes are not,
      * so a slow answer never creates the same charge twice.
+     *
+     * Every exchange is recorded for payment_logs; pass $record = false for authentication calls,
+     * whose answers are credentials.
      */
-    protected function http(bool $retry = false): PendingRequest
+    protected function http(bool $retry = false, bool $record = true): PendingRequest
     {
         $http = config('payment-gateways.http', []);
 
@@ -62,6 +76,10 @@ abstract class AbstractDriver implements PaymentGateway
             ->acceptJson()
             ->connectTimeout((int) ($http['connect_timeout'] ?? 5))
             ->timeout((int) ($http['timeout'] ?? 15));
+
+        if ($record) {
+            $request->withMiddleware($this->journal->middleware());
+        }
 
         if ($retry && (int) ($http['retries'] ?? 2) > 0) {
             $request->retry(

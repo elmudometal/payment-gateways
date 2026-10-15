@@ -118,7 +118,8 @@ it('commits the transaction when the buyer comes back', function () {
     $payment->refresh();
     expect($payment->status)->toBe(PaymentStatus::Paid)
         ->and($payment->authorization_code)->toBe('1213')
-        ->and($payment->voucher()['payment_type'])->toBe(__('payment-gateways::webpay.payment_types.VN'))
+        ->and($payment->receipt('payment_type'))->toBe(__('payment-gateways::webpay.payment_types.VN'))
+        ->and($payment->receipt('card_last_four'))->toBe('6623')
         ->and($this->transbank->requests[1]['method'])->toBe('PUT');
 });
 
@@ -180,4 +181,20 @@ it('refunds the transaction', function () {
 
     expect($payment->isRefunded())->toBeTrue()
         ->and($this->transbank->requests[0]['payload'])->toBe(['amount' => 15000]);
+});
+
+it('logs the Transbank calls as received', function () {
+    $payment = startWebpayCheckout();
+    $this->transbank->responses[] = webpayTransaction($payment);
+
+    $this->get(route('payments.commit', $payment).'?token_ws=tok-1');
+
+    $logs = $payment->logs()->where('direction', 'out')->get();
+
+    expect($logs->pluck('type')->all())->toBe(['charge', 'complete'])
+        ->and($logs[0]->url)->toBe('https://webpay3gint.transbank.cl/rswebpaytransaction/api/webpay/v1.2/transactions')
+        ->and($logs[0]->request['buy_order'])->toBe((string) $payment->id)
+        ->and($logs[1]->method)->toBe('PUT')
+        ->and($logs[1]->response['vci'])->toBe('TSY')
+        ->and($logs[1]->response['card_detail'])->toBe(['card_number' => '6623']);
 });

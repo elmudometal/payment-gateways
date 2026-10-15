@@ -9,11 +9,14 @@ use Arca\PaymentGateways\Enums\PaymentStatus;
  *
  * `reference` and `amount` are what the gateway says it charged. When a driver sets them,
  * PaymentService checks them against the local payment before changing anything.
+ *
+ * `receipt` holds normalized details for the buyer's receipt (card, installments, payment
+ * type...). The raw gateway answers are not carried here: drivers record them in payment_logs.
  */
 final readonly class ChargeResult
 {
     /**
-     * @param  array<string, mixed>  $raw  The gateway response, stored as the payment voucher
+     * @param  array<string, mixed>  $receipt  See Payment::receipt() for the keys
      * @param  array<string, mixed>  $viewData
      */
     public function __construct(
@@ -27,7 +30,7 @@ final readonly class ChargeResult
         public ?string $view = null,
         public array $viewData = [],
         public ?string $message = null,
-        public array $raw = [],
+        public array $receipt = [],
     ) {}
 
     public function isApproved(): bool

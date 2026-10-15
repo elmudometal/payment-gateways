@@ -146,4 +146,23 @@ return [
 
     'log_channel' => env('PAYMENT_GATEWAYS_LOG_CHANNEL'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Audit log (payment_logs table)
+    |--------------------------------------------------------------------------
+    |
+    | Every exchange with a gateway is stored untouched: API calls, the buyer coming back and
+    | notifications (also refused ones). Values of the `redact` keys are masked at any depth.
+    | With `retention_days`, `php artisan model:prune` deletes older logs; null keeps them all.
+    |
+    */
+    'logs' => [
+        'enabled' => env('PAYMENT_GATEWAYS_LOGS', true),
+        'retention_days' => env('PAYMENT_GATEWAYS_LOGS_RETENTION_DAYS'),
+        'redact' => [
+            'apiKey', 's', 'auth', 'tranKey', 'password', 'secret', 'secret_key',
+            'client_secret', 'access_token', 'refresh_token', 'webhook_secret',
+        ],
+    ],
+
 ];

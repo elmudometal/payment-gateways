@@ -38,15 +38,6 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
         'charged_back' => PaymentStatus::Reversed,
     ];
 
-    /**
-     * Fields of the Mercado Pago payment kept as voucher (the full answer carries payer data).
-     */
-    protected const array VOUCHER_FIELDS = [
-        'id', 'status', 'status_detail', 'external_reference', 'transaction_amount', 'currency_id',
-        'payment_method_id', 'payment_type_id', 'installments', 'authorization_code',
-        'date_created', 'date_approved', 'card.last_four_digits',
-    ];
-
     public function name(): string
     {
         return 'mercadopago';
@@ -119,7 +110,6 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
             status: PaymentStatus::Pending,
             externalId: (string) $data['id'],
             redirectUrl: (string) $data['init_point'],
-            raw: Arr::only($data, ['id', 'init_point', 'date_created']),
         );
     }
 
@@ -196,11 +186,9 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
             );
         }
 
-        $attempt = count($payment->metadata['refunds'] ?? []);
-
         try {
             $data = $this->api()
-                ->withHeaders(['X-Idempotency-Key' => "refund-{$payment->uuid}-{$attempt}"])
+                ->withHeaders(['X-Idempotency-Key' => "refund-{$payment->uuid}-{$payment->refunded_amount}-".($amount->amount ?? 'full')])
                 ->post("/v1/payments/{$payment->transaction_id}/refunds", $amount ? ['amount' => $amount->toNumber()] : [])
                 ->json();
         } catch (Throwable $e) {
@@ -212,7 +200,6 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
                 status: $payment->status,
                 refundId: isset($data['id']) ? (string) $data['id'] : null,
                 message: 'Refund '.($data['status'] ?? 'failed'),
-                raw: $data,
             );
         }
 
@@ -220,7 +207,6 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
             status: PaymentStatus::Refunded,
             refundId: (string) $data['id'],
             refundedAmount: isset($data['amount']) ? Money::fromDecimal($data['amount'], $payment->currency) : $amount,
-            raw: $data,
         );
     }
 
@@ -314,7 +300,15 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
             reference: (string) ($data['external_reference'] ?? ''),
             amount: Money::fromDecimal($data['transaction_amount'] ?? 0, $currency),
             message: $status === PaymentStatus::Failed ? $this->detailMessage($detail) : null,
-            raw: Arr::undot(Arr::only(Arr::dot($data), self::VOUCHER_FIELDS)),
+            receipt: [
+                'card_last_four' => $data['card']['last_four_digits'] ?? null,
+                'payment_method' => $data['payment_method_id'] ?? null,
+                'payment_type' => $data['payment_type_id'] ?? null,
+                'installments' => $data['installments'] ?? null,
+                'installment_amount' => $data['transaction_details']['installment_amount'] ?? null,
+                'transaction_date' => $data['date_approved'] ?? $data['date_created'] ?? null,
+                'status_detail' => $detail !== '' ? $detail : null,
+            ],
         );
     }
 

@@ -91,7 +91,6 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
             status: PaymentStatus::Pending,
             externalId: (string) $data['id'],
             redirectUrl: (string) $approve['href'],
-            raw: Arr::only($data, ['id', 'status']),
         );
     }
 
@@ -159,8 +158,6 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
             return new RefundResult(status: $payment->status, message: 'No PayPal capture id stored for this payment.');
         }
 
-        $attempt = count($payment->metadata['refunds'] ?? []);
-
         $body = $amount ? [
             'amount' => [
                 'value' => $amount->toDecimalString(),
@@ -170,7 +167,7 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
 
         try {
             $data = $this->api()
-                ->withHeaders(['PayPal-Request-Id' => "refund-{$payment->uuid}-{$attempt}"])
+                ->withHeaders(['PayPal-Request-Id' => "refund-{$payment->uuid}-{$payment->refunded_amount}-".($amount->amount ?? 'full')])
                 ->withBody($body === [] ? '{}' : (string) json_encode($body), 'application/json')
                 ->post("/v2/payments/captures/{$payment->transaction_id}/refund")
                 ->json();
@@ -185,7 +182,6 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
             refundId: $data['id'] ?? null,
             refundedAmount: $completed ? ($amount ?? $payment->money()) : null,
             message: $completed ? null : 'Refund '.($data['status'] ?? 'failed'),
-            raw: $data,
         );
     }
 
@@ -338,11 +334,11 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
             message: $status === PaymentStatus::Failed
                 ? ($capture['status_details']['reason'] ?? __('payment-gateways::messages.unknown_error'))
                 : null,
-            raw: [
-                'order_id' => $order['id'] ?? null,
-                'order_status' => $order['status'] ?? null,
-                'capture' => $capture ? Arr::only($capture, ['id', 'status', 'amount', 'create_time', 'status_details']) : null,
+            receipt: [
+                'payment_method' => 'paypal',
                 'payer_id' => $order['payer']['payer_id'] ?? null,
+                'transaction_date' => $capture['create_time'] ?? null,
+                'status_detail' => $capture['status_details']['reason'] ?? null,
             ],
         );
     }
@@ -368,7 +364,7 @@ class PaypalDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
         }
 
         try {
-            $data = $this->http(retry: true)
+            $data = $this->http(retry: true, record: false)
                 ->asForm()
                 ->withBasicAuth((string) $this->config['client_id'], (string) $this->config['client_secret'])
                 ->post('/v1/oauth2/token', ['grant_type' => 'client_credentials'])

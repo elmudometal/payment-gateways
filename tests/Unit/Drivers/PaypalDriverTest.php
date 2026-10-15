@@ -191,3 +191,21 @@ it('refunds the capture', function () {
     expect($payment->isRefunded())->toBeTrue();
     Http::assertSent(fn (HttpRequest $r) => str_ends_with($r->url(), '/captures/CAPTURE-1/refund') && $r->body() === '{}');
 });
+
+it('keeps the PayPal debug id of each call for support requests', function () {
+    Http::fake([
+        PAYPAL.'/v1/oauth2/token' => Http::response(['access_token' => 'A21-token', 'expires_in' => 32400]),
+        PAYPAL.'/v2/checkout/orders' => Http::response(
+            ['id' => 'ORDER-1', 'links' => [['rel' => 'payer-action', 'href' => 'https://paypal.test']]],
+            201,
+            ['Paypal-Debug-Id' => 'f1a2b3c4d5', 'Set-Cookie' => 'tracker=1'],
+        ),
+    ]);
+    $payment = PaymentGateways::create('paypal', Money::of(1999, Currency::USD));
+
+    PaymentGateways::charge($payment);
+
+    $headers = $payment->logs()->sole()->response_headers;
+    expect($headers['Paypal-Debug-Id'])->toBe('f1a2b3c4d5')
+        ->and($headers)->not->toHaveKey('Set-Cookie');
+});

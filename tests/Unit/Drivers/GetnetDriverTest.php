@@ -4,7 +4,6 @@ use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Facades\PaymentGateways;
 use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\ValueObjects\Money;
-use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
@@ -17,7 +16,7 @@ beforeEach(function () {
     $stack = HandlerStack::create($this->responses);
     $stack->push(Middleware::history($this->sent));
 
-    PaymentGateways::driver('getnet')->usingHttpClient(new Client(['handler' => $stack]));
+    PaymentGateways::driver('getnet')->usingHttpHandler($stack);
 });
 
 function getnetSession(Payment $payment, string $status, array $overrides = []): Response
@@ -174,4 +173,15 @@ it('reverses an approved payment', function () {
 
     expect($payment->isRefunded())->toBeTrue()
         ->and(json_decode((string) $this->sent[0]['request']->getBody(), true)['internalReference'])->toBe('99001');
+});
+
+it('logs the Getnet calls without the authentication block', function () {
+    $payment = startGetnetCheckout();
+
+    $log = $payment->logs()->sole();
+
+    expect($log->url)->toBe('https://checkout.test.getnet.cl/api/session')
+        ->and($log->request['auth'])->toBe('[redacted]')
+        ->and($log->request['payment']['reference'])->toBe(str_replace('-', '', $payment->uuid))
+        ->and($log->response['processUrl'])->toBe('https://checkout.test.getnet.cl/spa/session/7001/abc');
 });

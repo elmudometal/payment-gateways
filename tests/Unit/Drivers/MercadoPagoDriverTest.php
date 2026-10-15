@@ -88,8 +88,8 @@ it('approves the payment when the buyer comes back', function () {
     expect($payment->status)->toBe(PaymentStatus::Paid)
         ->and($payment->transaction_id)->toBe('1234567890')
         ->and($payment->authorization_code)->toBe('301299')
-        ->and($payment->voucher())->not->toHaveKey('payer')
-        ->and($payment->voucher()['payment_method_id'])->toBe('visa');
+        ->and($payment->receipt('payment_method'))->toBe('visa')
+        ->and($payment->receipt('installments'))->toBeNull();
 });
 
 it('never trusts the status in the query string', function () {
@@ -250,6 +250,6 @@ it('refunds fully and partially with idempotency keys', function () {
     PaymentGateways::refund($payment);
     expect($payment->isRefunded())->toBeTrue();
 
-    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-0") && $r['amount'] === 5000);
-    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-1") && $r->data() === []);
+    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-0-5000") && $r['amount'] === 5000);
+    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-5000-full") && $r->data() === []);
 });

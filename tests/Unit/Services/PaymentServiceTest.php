@@ -47,7 +47,8 @@ it('creates a pending payment', function () {
         ->and($payment->uuid)->toBeUuid()
         ->and($payment->status)->toBe(PaymentStatus::Pending)
         ->and($payment->money()->equals(Money::CLP(15000)))->toBeTrue()
-        ->and($payment->customer()?->email)->toBe('ana@example.com')
+        ->and($payment->customer?->email)->toBe('ana@example.com')
+        ->and($payment->metadata)->toBe(['order_id' => 1])
         ->and($payment->metadata['order_id'])->toBe(1)
         ->and($payment->checkoutUrl())->toEndWith('/payments/'.$payment->uuid);
 });
@@ -135,14 +136,14 @@ it('ignores out of order notifications for a paid payment', function () {
     Event::fake([PaymentRejected::class]);
     $payment = pendingPayment();
     $this->service->complete($payment, new Request);
-    $voucher = $payment->voucher();
+    $authorization = $payment->authorization_code;
 
-    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Failed, raw: ['stale' => true]));
+    $this->fake->completeWith(new ChargeResult(status: PaymentStatus::Failed, authorizationCode: 'stale'));
     $changed = $this->service->apply($payment, $this->fake->query($payment));
 
     expect($changed)->toBeFalse()
         ->and($payment->fresh()->status)->toBe(PaymentStatus::Paid)
-        ->and($payment->fresh()->voucher())->toBe($voucher);
+        ->and($payment->fresh()->authorization_code)->toBe($authorization);
     Event::assertNotDispatched(PaymentRejected::class);
 });
 
@@ -198,7 +199,7 @@ it('refunds partially and then fully', function () {
     $this->service->refund($payment, Money::CLP(4000));
 
     expect($payment->isPaid())->toBeTrue()
-        ->and($payment->metadata['refunds'])->toHaveCount(1);
+        ->and($payment->refunded_amount)->toBe(4000);
     Event::assertNotDispatched(PaymentRefunded::class);
 
     $this->service->refund($payment, Money::CLP(6000));

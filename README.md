@@ -206,7 +206,8 @@ $payment->status;              // PaymentStatus::Pending, Authorized, Paid, Fail
 $payment->isPaid();
 $payment->money()->format();   // "15.000 CLP"
 $payment->failureMessage();    // why the gateway rejected it
-$payment->voucher();           // the gateway answer kept for your records
+$payment->receipt('installments');  // receipt details: card, installments, payment type...
+$payment->metadata;            // your own data, never written by the package
 
 PaymentGateways::sync($payment);                       // ask the gateway now
 PaymentGateways::refund($payment);                     // full refund
@@ -215,6 +216,22 @@ PaymentGateways::refund($payment, Money::CLP(5000));   // partial refund
 
 `Money` holds amounts in the currency's minor unit: `Money::CLP(15000)` is 15.000 pesos,
 `Money::USD(1999)` is 19.99 dollars, and `Money::fromDecimal('19.99', 'USD')` builds the same.
+
+### Audit log
+
+Every exchange with a gateway is stored raw in `payment_logs`: API calls (request and answer as
+sent and received, secrets masked), the buyer coming back, and every notification, including
+refused ones and those about unknown payments.
+
+```php
+$payment->logs;   // the full trail, oldest first
+```
+
+Keep them as long as you need: set `PAYMENT_GATEWAYS_LOGS_RETENTION_DAYS` and schedule
+`Schedule::command('model:prune')->daily()` to delete older ones.
+
+**[DATA.md](DATA.md)** maps every column and log to the fields of each gateway: where to find the
+buy order, authorization code, VCI, card digits or a notification when a certification asks.
 
 ### Events
 

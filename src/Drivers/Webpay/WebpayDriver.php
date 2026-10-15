@@ -9,6 +9,7 @@ use Arca\PaymentGateways\Enums\PaymentStatus;
 use Arca\PaymentGateways\Exceptions\GatewayException;
 use Arca\PaymentGateways\Exceptions\PaymentVerificationException;
 use Arca\PaymentGateways\Models\Payment;
+use Arca\PaymentGateways\Support\Transbank\RecordingRequestService;
 use Arca\PaymentGateways\ValueObjects\ChargeIntent;
 use Arca\PaymentGateways\ValueObjects\ChargeResult;
 use Arca\PaymentGateways\ValueObjects\Money;
@@ -153,12 +154,6 @@ class WebpayDriver extends AbstractDriver implements SupportsRefunds
             refundId: $response->getAuthorizationCode(),
             refundedAmount: $amount ?? $payment->money(),
             message: $response->success() ? null : 'Refund '.$response->getType(),
-            raw: [
-                'type' => $response->getType(),
-                'response_code' => $response->getResponseCode(),
-                'nullified_amount' => $response->getNullifiedAmount(),
-                'balance' => $response->getBalance(),
-            ],
         );
     }
 
@@ -199,19 +194,14 @@ class WebpayDriver extends AbstractDriver implements SupportsRefunds
             reference: $response->getBuyOrder(),
             amount: $response->getAmount() !== null ? Money::CLP((int) $response->getAmount()) : null,
             message: $status === PaymentStatus::Failed ? $this->responseMessage($response->getResponseCode()) : null,
-            raw: [
-                'status' => $response->getStatus(),
-                'response_code' => $response->getResponseCode(),
-                'amount' => $response->getAmount(),
-                'buy_order' => $response->getBuyOrder(),
-                'authorization_code' => $response->getAuthorizationCode(),
+            receipt: [
+                'card_last_four' => $response->getCardNumber(),
                 'payment_type_code' => $response->getPaymentTypeCode(),
                 'payment_type' => $this->paymentType($response->getPaymentTypeCode()),
-                'installments_number' => $response->getInstallmentsNumber(),
-                'installments_amount' => $response->getInstallmentsAmount(),
-                'card_number' => $response->getCardNumber(),
-                'accounting_date' => $response->getAccountingDate(),
+                'installments' => $response->getInstallmentsNumber(),
+                'installment_amount' => $response->getInstallmentsAmount(),
                 'transaction_date' => $response->getTransactionDate(),
+                'accounting_date' => $response->getAccountingDate(),
             ],
         );
     }
@@ -250,7 +240,7 @@ class WebpayDriver extends AbstractDriver implements SupportsRefunds
             );
         }
 
-        return new Transaction($options, $this->requestService);
+        return new Transaction($options, new RecordingRequestService($this->journal, $this->requestService));
     }
 
     protected function baseUrl(): string

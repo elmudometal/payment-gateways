@@ -19,6 +19,7 @@ use Dnetix\Redirection\Entities\Status;
 use Dnetix\Redirection\Message\RedirectInformation;
 use Dnetix\Redirection\PlacetoPay;
 use GuzzleHttp\Client;
+use GuzzleHttp\HandlerStack;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Throwable;
@@ -33,7 +34,10 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
 {
     protected ?PlacetoPay $placetoPay = null;
 
-    protected ?Client $client = null;
+    /**
+     * @var callable|null
+     */
+    protected $handler = null;
 
     public function name(): string
     {
@@ -49,11 +53,11 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
     }
 
     /**
-     * Replaces the HTTP client of the PlacetoPay library (tests).
+     * Replaces the Guzzle handler under the PlacetoPay library (tests). Exchanges are still recorded.
      */
-    public function usingHttpClient(Client $client): static
+    public function usingHttpHandler(callable $handler): static
     {
-        $this->client = $client;
+        $this->handler = $handler;
         $this->placetoPay = null;
 
         return $this;
@@ -163,7 +167,6 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
             refundId: $response->payment()?->internalReference(),
             refundedAmount: $approved ? $payment->money() : null,
             message: $approved ? null : $response->status()->message(),
-            raw: $response->status()->toArray(),
         );
     }
 
@@ -234,18 +237,12 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
             reference: $sent?->reference(),
             amount: $amount,
             message: $status === PaymentStatus::Failed ? ($transaction?->status()->message() ?: $information->status()->message()) : null,
-            raw: [
-                'request_id' => $information->requestId(),
-                'status' => $information->status()->toArray(),
-                'transaction' => $transaction ? [
-                    'internal_reference' => $transaction->internalReference(),
-                    'authorization' => $transaction->authorization(),
-                    'payment_method' => $transaction->paymentMethodName(),
-                    'franchise' => $transaction->franchise(),
-                    'receipt' => $transaction->receipt(),
-                    'status' => $transaction->status()->toArray(),
-                ] : null,
-            ],
+            receipt: $transaction ? [
+                'payment_method' => $transaction->paymentMethodName(),
+                'card_brand' => $transaction->franchise(),
+                'receipt_number' => $transaction->receipt(),
+                'transaction_date' => $transaction->status()->date(),
+            ] : [],
         );
     }
 
@@ -253,13 +250,25 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
     {
         $this->requireConfig(['login', 'tran_key']);
 
-        return $this->placetoPay ??= new PlacetoPay(array_filter([
+        if ($this->placetoPay !== null) {
+            return $this->placetoPay;
+        }
+
+        $timeout = (int) config('payment-gateways.http.timeout', 15);
+        $stack = HandlerStack::create($this->handler);
+        $stack->push($this->journal->middleware());
+
+        return $this->placetoPay = new PlacetoPay([
             'login' => (string) $this->config['login'],
             'tranKey' => (string) $this->config['tran_key'],
             'baseUrl' => $this->baseUrl(),
-            'timeout' => (int) config('payment-gateways.http.timeout', 15),
-            'client' => $this->client,
-        ]));
+            'timeout' => $timeout,
+            'client' => new Client([
+                'handler' => $stack,
+                'timeout' => $timeout,
+                'connect_timeout' => (int) config('payment-gateways.http.connect_timeout', 5),
+            ]),
+        ]);
     }
 
     protected function baseUrl(): string
