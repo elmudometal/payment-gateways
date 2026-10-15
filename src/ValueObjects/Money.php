@@ -55,6 +55,14 @@ final readonly class Money
     }
 
     /**
+     * The amount as a JSON number: an integer for currencies without decimals (15000, not 15000.0).
+     */
+    public function toNumber(): int|float
+    {
+        return $this->currency->minorUnit() === 0 ? $this->amount : $this->toDecimal();
+    }
+
+    /**
      * The decimal amount as a string with the currency's decimals ("15000", "150.50"), for API payloads.
      */
     public function toDecimalString(): string

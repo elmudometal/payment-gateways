@@ -62,7 +62,7 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
                 'title' => Str::limit($intent->description, 250),
                 'quantity' => 1,
                 'currency_id' => $intent->money->currency->value,
-                'unit_price' => $intent->money->toDecimal(),
+                'unit_price' => $intent->money->toNumber(),
             ]],
             'external_reference' => $this->reference($payment),
             'back_urls' => [
@@ -201,7 +201,7 @@ class MercadoPagoDriver extends AbstractDriver implements SupportsRefunds, Suppo
         try {
             $data = $this->api()
                 ->withHeaders(['X-Idempotency-Key' => "refund-{$payment->uuid}-{$attempt}"])
-                ->post("/v1/payments/{$payment->transaction_id}/refunds", $amount ? ['amount' => $amount->toDecimal()] : [])
+                ->post("/v1/payments/{$payment->transaction_id}/refunds", $amount ? ['amount' => $amount->toNumber()] : [])
                 ->json();
         } catch (Throwable $e) {
             throw $this->communicationError($e, 'Refund');

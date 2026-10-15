@@ -25,10 +25,19 @@ class WebhookController extends Controller
      */
     public function handle(string $gateway, Request $request): JsonResponse
     {
+        if (! is_array(config("payment-gateways.gateways.{$gateway}"))) {
+            return response()->json(['message' => 'not found'], 404);
+        }
+
         try {
             $payment = $this->payments->handleWebhook($gateway, $request);
-        } catch (GatewayConfigurationException|UnsupportedFeatureException) {
+        } catch (UnsupportedFeatureException) {
             return response()->json(['message' => 'not found'], 404);
+        } catch (GatewayConfigurationException $e) {
+            // Missing credentials: answer 5xx so the gateway retries once the config is fixed.
+            $this->log('error', $gateway, $e->getMessage());
+
+            return response()->json(['message' => 'error'], 500);
         } catch (InvalidWebhookSignatureException $e) {
             $this->log('warning', $gateway, $e->getMessage());
 

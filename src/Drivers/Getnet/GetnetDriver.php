@@ -178,11 +178,13 @@ class GetnetDriver extends AbstractDriver implements SupportsRefunds, SupportsWe
         $date = (string) $request->input('status.date', '');
         $signature = (string) $request->input('signature', '');
 
-        if ($requestId === '' || $status === '' || $signature === '') {
+        $tranKey = (string) ($this->config['tran_key'] ?? '');
+
+        if ($requestId === '' || $status === '' || $signature === '' || $tranKey === '') {
             return false;
         }
 
-        $data = $requestId.$status.$date.$this->config['tran_key'];
+        $data = $requestId.$status.$date.$tranKey;
 
         $expected = str_starts_with($signature, 'sha256:')
             ? 'sha256:'.hash('sha256', $data)

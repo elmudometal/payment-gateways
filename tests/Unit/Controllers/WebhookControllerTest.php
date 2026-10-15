@@ -3,6 +3,7 @@
 use Arca\PaymentGateways\Events\WebhookReceived;
 use Arca\PaymentGateways\Exceptions\GatewayCommunicationException;
 use Arca\PaymentGateways\Facades\PaymentGateways;
+use Arca\PaymentGateways\Models\Payment;
 use Arca\PaymentGateways\Support\Testing\FakeDriver;
 use Arca\PaymentGateways\ValueObjects\Money;
 use Arca\PaymentGateways\ValueObjects\WebhookResult;
@@ -57,4 +58,18 @@ it('does not need a csrf token', function () {
     PaymentGateways::fake('flow');
 
     $this->post(route('payments.webhook', 'flow'))->assertOk();
+});
+
+it('answers 500 when the gateway credentials are missing, so it retries later', function () {
+    config()->set('payment-gateways.gateways.flow.api_key', null);
+    Payment::factory()->gateway('flow')->create(['external_id' => 'flow-token']);
+
+    $this->postJson(route('payments.webhook', 'flow'), ['token' => 'flow-token'])->assertStatus(500);
+});
+
+it('refuses Getnet notifications when no tran key is configured', function () {
+    config()->set('payment-gateways.gateways.getnet.tran_key', null);
+
+    $this->postJson(route('payments.webhook', 'getnet'), ['requestId' => 1, 'status' => ['status' => 'APPROVED'], 'signature' => sha1('1APPROVED')])
+        ->assertUnauthorized();
 });

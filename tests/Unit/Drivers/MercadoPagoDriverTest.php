@@ -54,7 +54,7 @@ it('creates a preference with the payment reference', function () {
             && $request->hasHeader('Authorization', 'Bearer TEST-token')
             && $request->hasHeader('X-Idempotency-Key', 'preference-'.$payment->uuid)
             && $request['external_reference'] === $payment->uuid
-            && $request['items'][0]['unit_price'] === 15000.0
+            && $request['items'][0]['unit_price'] === 15000
             && $request['items'][0]['currency_id'] === 'CLP'
             && $request['payer']['email'] === 'buyer@example.com'
             && $request['back_urls']['success'] === route('payments.commit', $payment);
@@ -250,6 +250,6 @@ it('refunds fully and partially with idempotency keys', function () {
     PaymentGateways::refund($payment);
     expect($payment->isRefunded())->toBeTrue();
 
-    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-0") && $r['amount'] === 5000.0);
+    Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-0") && $r['amount'] === 5000);
     Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('X-Idempotency-Key', "refund-{$payment->uuid}-1") && $r->data() === []);
 });

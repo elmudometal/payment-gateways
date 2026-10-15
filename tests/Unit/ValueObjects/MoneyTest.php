@@ -36,3 +36,8 @@ it('formats for people', function () {
 it('refuses negative amounts', function () {
     Money::CLP(-1);
 })->throws(InvalidArgumentException::class);
+
+it('is an integer JSON number for currencies without decimals', function () {
+    expect(Money::CLP(15000)->toNumber())->toBe(15000)
+        ->and(Money::USD(1999)->toNumber())->toBe(19.99);
+});
