@@ -1,0 +1,2 @@
+providers:
+  - Arca\PaymentGateways\PaymentGatewaysServiceProvider

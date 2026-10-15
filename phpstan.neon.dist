@@ -1,6 +1,5 @@
 includes:
     - phpstan-baseline.neon
-    - vendor/larastan/larastan/extension.neon
 
 parameters:
     level: 6
@@ -8,5 +7,5 @@ parameters:
         - src
     tmpDir: build/phpstan
     checkModelProperties: true
-    checkMissingIterableValueType: false
-
+    ignoreErrors:
+        - identifier: missingType.iterableValue
